@@ -1,0 +1,11 @@
+name: LandFight
+version: '${version}'
+
+main: top.yurikale.landFight.LandFight
+api-version: '26.1.2'
+load: POSTWORLD
+
+commands:
+  lf:
+    description: "核心控制指令"
+    usage: /lf <start|stop>
