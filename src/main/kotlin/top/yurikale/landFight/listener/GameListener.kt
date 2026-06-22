@@ -100,6 +100,8 @@ class GameListener(private val plugin: LandFight) : Listener {
         val isBaseSheep = plugin.structurePlacer.activeBases.values.any { it.sheepEntityId == entity.uniqueId }
         if (!isBaseSheep) return
 
+        val base = plugin.structurePlacer.activeBases.values.firstOrNull { it.sheepEntityId == entity.uniqueId } ?: return
+
         // 如果伤害来源不是其他实体（比如窒息、火焰、掉落、熔岩），直接无敌
         if (event.cause != org.bukkit.event.entity.EntityDamageEvent.DamageCause.ENTITY_ATTACK &&
             event.cause != org.bukkit.event.entity.EntityDamageEvent.DamageCause.ENTITY_SWEEP_ATTACK &&
@@ -107,6 +109,9 @@ class GameListener(private val plugin: LandFight) : Listener {
 
             event.isCancelled = true
         }
+
+        plugin.structurePlacer.refreshBaseVisual(base, plugin.structurePlacer.isBaseCapital(base.id))
+
     }
 
     @EventHandler
@@ -122,8 +127,16 @@ class GameListener(private val plugin: LandFight) : Listener {
         val myTeam = plugin.teamManager.getPlayerTeam(player) ?: TeamColor.NEUTRAL
         if (myTeam == TeamColor.NEUTRAL) return
 
-        // 必须是自家的羊，且玩家必须在潜行（Shift）
-        if (targetBase.ownerTeam == myTeam && player.isSneaking) {
+        // 必须是自家的羊
+        if (targetBase.ownerTeam == myTeam) {
+            val currentCapital = plugin.teamManager.teamsCapitals[myTeam]
+            val isThisBaseCapital = currentCapital != null && plugin.stateManager.isSameBlockPos(currentCapital, targetBase.location)
+
+            if (isThisBaseCapital) {
+                player.sendMessage("§e提示：这个据点已经是你们队伍的大本营，无需重复设置！")
+                return
+            }
+
             val oldCapitalLoc = plugin.teamManager.teamsCapitals[myTeam]
             // 如果已有旧大本营，先把旧据点改回普通据点样式
             oldCapitalLoc?.let { oldLoc ->
@@ -137,7 +150,7 @@ class GameListener(private val plugin: LandFight) : Listener {
             // 刷新新据点为大本营样式
             plugin.structurePlacer.refreshBaseVisual(targetBase, isCapital = true)
 
-            player.sendMessage("§a【大本营】§f你已为本队更换新大本营！")
+            player.sendMessage("§a【大本营设置成功】§f你已为本队更换新复活大本营！")
             org.bukkit.Bukkit.broadcastMessage("§e【战略转移】§f${player.name} 为 ${myTeam.colorCode}${myTeam.displayName}§e 设立全新大本营！")
         }
     }

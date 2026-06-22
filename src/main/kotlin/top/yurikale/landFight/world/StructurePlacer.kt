@@ -2,8 +2,9 @@ package top.yurikale.landFight.world
 
 import org.bukkit.Bukkit
 import org.bukkit.DyeColor
-import  top.yurikale.landFight.LandFight
+import top.yurikale.landFight.LandFight
 import org.bukkit.Location
+import org.bukkit.attribute.Attribute
 import org.bukkit.Material
 import org.bukkit.World
 import org.bukkit.entity.Sheep
@@ -237,20 +238,24 @@ class StructurePlacer(private val plugin: LandFight) {
     fun refreshBaseVisual(base: Base, isCapital: Boolean) {
         val sheep = plugin.server.getEntity(base.sheepEntityId ?: return) as? Sheep ?: return
         val owner = base.ownerTeam ?: TeamColor.NEUTRAL
+        val maxHp = sheep.getAttribute(Attribute.MAX_HEALTH)?.value ?: 8.0
+        val currentHp = sheep.health
+        // 保留1位小数血量显示
+        val hpText = " §6HP:${String.format("%.1f", currentHp)}/${String.format("%.1f", maxHp)}"
 
-        // 1. 修改羊颜色、名称
+        // 1. 修改羊颜色、名称（拼接血量）
         when(owner) {
             TeamColor.NEUTRAL -> {
                 sheep.color = DyeColor.GRAY
-                sheep.customName = "§7[中立据点]"
+                sheep.customName = "§7[中立据点]$hpText"
             }
             TeamColor.RED -> {
                 sheep.color = DyeColor.RED
-                sheep.customName = if(isCapital) "§c■ 红队【大本营】■" else "§c■ 红队据点 ■"
+                sheep.customName = if(isCapital) "§c■ 红队【大本营】■$hpText" else "§c■ 红队据点 ■$hpText"
             }
             TeamColor.BLUE -> {
                 sheep.color = DyeColor.BLUE
-                sheep.customName = if(isCapital) "§9■ 蓝队【大本营】■" else "§9■ 蓝队据点 ■"
+                sheep.customName = if(isCapital) "§9■ 蓝队【大本营】■$hpText" else "§9■ 蓝队据点 ■$hpText"
             }
         }
         sheep.isCustomNameVisible = true
