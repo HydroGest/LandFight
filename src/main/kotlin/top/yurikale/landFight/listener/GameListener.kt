@@ -5,14 +5,13 @@ import org.bukkit.Material
 import org.bukkit.Tag
 import org.bukkit.attribute.Attribute
 import org.bukkit.entity.Player
+import org.bukkit.entity.Sheep
 import org.bukkit.event.EventHandler
 import org.bukkit.event.Listener
-import org.bukkit.event.player.PlayerInteractEvent
 import top.yurikale.landFight.state.GameState
-import org.bukkit.event.block.Action
 import org.bukkit.event.block.BlockBreakEvent
 import org.bukkit.event.entity.EntityDamageByEntityEvent
-import org.bukkit.event.player.PlayerQuitEvent
+import org.bukkit.event.player.PlayerInteractEntityEvent
 import org.bukkit.event.player.PlayerRespawnEvent
 import top.yurikale.landFight.LandFight
 import top.yurikale.landFight.team.TeamColor
@@ -27,68 +26,115 @@ class GameListener(private val plugin: LandFight) : Listener {
     }
 
     @EventHandler
-    fun onPlayerInteract(event: PlayerInteractEvent) {
+    fun onEntityDamageByEntity(event: EntityDamageByEntityEvent) {
+        val damager = event.damager
+        val victim = event.entity
+
+        // 【大厅 PVP 保护】
+        if (plugin.stateManager.currentState == GameState.LOBBY) {
+            if (damager is Player && victim is Player) {
+                event.isCancelled = true
+                damager.sendMessage("§c大厅禁止PVP！")
+            }
+            return
+        }
+
         if (plugin.stateManager.currentState != GameState.IN_GAME) return
-        if (event.action != Action.RIGHT_CLICK_BLOCK) return
+        if (victim !is Sheep) return
+        if (damager !is Player) return
+        if (damager.gameMode != GameMode.SURVIVAL) return
 
-        val clickedBlock = event.clickedBlock ?: return
-        if (!Tag.WOOL.isTagged(clickedBlock.type)) return
+        // 通过被攻击羊的 UUID 找到对应的据点
+        val targetBase = plugin.structurePlacer.activeBases.values.find { it.sheepEntityId == victim.uniqueId } ?: return
+        val myTeam = plugin.teamManager.getPlayerTeam(damager) ?: TeamColor.NEUTRAL
+        if (myTeam == TeamColor.NEUTRAL) {
+            damager.sendMessage("§c你还没有加入任何队伍，无法占领据点！")
+            return
+        }
 
-        val clickedLocation = clickedBlock.location
+        // 队友保护：禁止攻击自家的羊
+        if (targetBase.ownerTeam == myTeam) {
+            event.isCancelled = true
+            damager.sendMessage("§c这是你自己的据点核心，别打啦！")
+            return
+        }
+
+        // ===============================================
+        // TODO: 这里是给里程碑 4 预留的 绝对防御 检查口
+        // if (targetBase.isProtected) {
+        //     event.isCancelled = true
+        //     damager.sendMessage("§c据点处于网络保护中！请先切断敌方连线！")
+        //     return
+        // }
+        // ===============================================
+
+        // 【斩杀判定】：如果这一击足以杀死羊
+        if (victim.health - event.finalDamage <= 0) {
+            // 1. 锁血（取消真实死亡事件，手动回满血）
+            event.isCancelled = true
+            victim.health = victim.getAttribute(Attribute.MAX_HEALTH)?.value ?: 8.0
+
+            // 2. 战报与大本营覆灭判定
+            val enemyTeam = targetBase.ownerTeam
+            if (enemyTeam != TeamColor.NEUTRAL && plugin.teamManager.teamsCapitals[enemyTeam]?.let { isSameBlockPos(it, targetBase.location) } == true) {
+                plugin.teamManager.teamsCapitals.remove(enemyTeam)
+                org.bukkit.Bukkit.broadcastMessage("§c【重大战报】${enemyTeam?.colorCode}${enemyTeam?.displayName}§c 大本营被 §f${damager.name}§c 攻破！敌方全体无法复活！")
+            }
+
+            // 3. 数据易主 & 图论断网
+            targetBase.ownerTeam = myTeam
+            plugin.structurePlacer.networkGraph.clearConnectionsOf(targetBase.id)
+            org.bukkit.Bukkit.broadcastMessage("§e【据点占领】${myTeam.colorCode}${damager.name}§e 击破了守卫羊，成功占领据点 (${targetBase.location.blockX}, ${targetBase.location.blockY}, ${targetBase.location.blockZ})！")
+
+            // 4. 视觉刷新：修改羊的颜色和名字
+            val dyeColor = when(myTeam) {
+                TeamColor.RED -> org.bukkit.DyeColor.RED
+                TeamColor.BLUE -> org.bukkit.DyeColor.BLUE
+                else -> org.bukkit.DyeColor.GRAY
+            }
+            victim.color = dyeColor
+            victim.customName = "${myTeam.colorCode}■ ${myTeam.displayName}的据点 ■"
+
+            // 5. 视觉刷新：修改底座羊毛和天空玻璃
+            val woolBlock = targetBase.location.block
+            val glassBlock = targetBase.location.clone().add(0.0, 13.0, 0.0).block
+            when(myTeam) {
+                TeamColor.RED -> {
+                    woolBlock.type = Material.RED_WOOL
+                    glassBlock.type = Material.RED_STAINED_GLASS
+                }
+                TeamColor.BLUE -> {
+                    woolBlock.type = Material.BLUE_WOOL
+                    glassBlock.type = Material.BLUE_STAINED_GLASS
+                }
+                else -> {
+                    woolBlock.type = Material.GRAY_WOOL
+                    glassBlock.type = Material.AIR
+                }
+            }
+        }
+    }
+
+    @EventHandler
+    fun onPlayerInteractEntity(event: PlayerInteractEntityEvent) {
+        if (plugin.stateManager.currentState != GameState.IN_GAME) return
+        val entity = event.rightClicked
+        if (entity !is Sheep) return
+
         val player = event.player
         if (player.gameMode != GameMode.SURVIVAL) return
 
-        // 【v2 核心改造】：直接在 Map 的 values 里找对应的 Base 对象
-        val clickedBase = plugin.structurePlacer.activeBases.values.find { base ->
-            isSameBlockPos(base.location, clickedLocation)
-        }
+        val targetBase = plugin.structurePlacer.activeBases.values.find { it.sheepEntityId == entity.uniqueId } ?: return
+        val myTeam = plugin.teamManager.getPlayerTeam(player) ?: TeamColor.NEUTRAL
+        if (myTeam == TeamColor.NEUTRAL) return
 
-        // 如果找不到，说明点的只是一块普通的羊毛，直接 return
-        if (clickedBase == null) return
-
-        val myTeam = plugin.teamManager.getPlayerTeam(player)
-
-        // 1. 如果当前据点不是我的，执行【占领逻辑】
-        if (clickedBase.ownerTeam != myTeam) {
-            val enemyTeam = clickedBase.ownerTeam
-
-            // 如果这个据点恰好是敌方的大本营（后续这里可以改成判断 Base 对象自身是不是大本营）
-            if (enemyTeam != TeamColor.NEUTRAL && plugin.teamManager.teamsCapitals[enemyTeam]?.let { isSameBlockPos(it, clickedLocation) } == true) {
-                plugin.teamManager.teamsCapitals.remove(enemyTeam)
-                enemyTeam?.let { org.bukkit.Bukkit.broadcastMessage("§c【重大战报】${it.colorCode}${enemyTeam.displayName}§c 大本营被 §f${player.name}§c 攻破！敌方全体无法复活！") }
-            }
-
-            // 对象属性易主
-            clickedBase.ownerTeam = myTeam
-
-            // 【预留给图论的接口】：因为据点易主，之前跟它连接的交通线全部作废！
-            plugin.structurePlacer.networkGraph.clearConnectionsOf(clickedBase.id)
-
-            org.bukkit.Bukkit.broadcastMessage("§e【据点占领】${myTeam.colorCode}${player.name}§e 成功占领据点 (${clickedLocation.blockX}, ${clickedLocation.blockY}, ${clickedLocation.blockZ})！")
-        }
-        // 2. 如果是自己的据点，且玩家在潜行，执行【转移大本营逻辑】
-        else if (player.isSneaking) {
+        // 必须是自家的羊，且玩家必须在潜行（Shift）
+        if (targetBase.ownerTeam == myTeam && player.isSneaking) {
             val currentCapital = plugin.teamManager.teamsCapitals[myTeam]
-            if (currentCapital == null || !isSameBlockPos(currentCapital, clickedLocation)) {
-                plugin.teamManager.teamsCapitals[myTeam] = clickedLocation
+            if (currentCapital == null || !isSameBlockPos(currentCapital, targetBase.location)) {
+                plugin.teamManager.teamsCapitals[myTeam] = targetBase.location
                 player.sendMessage("§a【大本营】§f你已为本队更换新大本营！")
                 org.bukkit.Bukkit.broadcastMessage("§e【战略转移】§f${player.name} 为 ${myTeam.colorCode}${myTeam.displayName}§e 设立全新大本营！")
-            }
-        }
-
-        // 3. 视觉反馈更新
-        when(myTeam){
-            TeamColor.RED -> {
-                clickedBlock.type = Material.RED_WOOL
-                clickedLocation.clone().add(0.0, 13.0, 0.0).block.type = Material.RED_STAINED_GLASS
-            }
-            TeamColor.BLUE -> {
-                clickedBlock.type = Material.BLUE_WOOL
-                clickedLocation.clone().add(0.0, 13.0, 0.0).block.type = Material.BLUE_STAINED_GLASS
-            }
-            TeamColor.NEUTRAL -> {
-                clickedBlock.type = Material.GRAY_WOOL
-                clickedLocation.clone().add(0.0, 13.0, 0.0).block.type = Material.AIR
             }
         }
     }
@@ -99,23 +145,19 @@ class GameListener(private val plugin: LandFight) : Listener {
         val block = event.block
         val posKey = "${block.x},${block.y},${block.z}"
 
-        // 是系统生成的据点原生建筑 → 禁止破坏
         if (plugin.structurePlacer.allBaseStructureBlocks.contains(posKey)) {
             event.isCancelled = true
             player.sendMessage("§c据点原生建筑不可破坏，你自己放置的方块可以拆除！")
             return
         }
 
-        // 保护占领羊毛核心
         if (Tag.WOOL.isTagged(block.type)) {
-            // 【v2 核心改造】：用同样的找对象方法防破坏
             val isBaseCore = plugin.structurePlacer.activeBases.values.any { base ->
                 isSameBlockPos(base.location, block.location)
             }
-
             if (isBaseCore) {
                 event.isCancelled = true
-                player.sendMessage("§c据点核心无法挖掘，请右键操作！")
+                player.sendMessage("§c这是据点的基座，你无法破坏它！想要占领请攻击那只羊！")
             }
         }
     }

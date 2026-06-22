@@ -150,15 +150,25 @@ class StructurePlacer(private val plugin: LandFight) {
 
                     val coreLocation = targetLocation.clone().add(6.0, 4.0, 6.0)
 
+                    // 在底座上方生成实体羊
+                    val spawnLoc = coreLocation.clone().add(0.5, 1.0, 0.5)
+                    val sheep = world.spawn(spawnLoc, org.bukkit.entity.Sheep::class.java) { s ->
+                        s.setAI(false) // 站着当雕像
+                        s.color = org.bukkit.DyeColor.GRAY
+                        s.customName = "§7[中立据点]"
+                        s.isCustomNameVisible = true
+                        // isInvulnerable = true
+                    }
 
                     val newBaseId = spawned // 0 到 29
                     val newBase = Base(
                         id = newBaseId,
                         location = coreLocation,
                         ownerTeam = TeamColor.NEUTRAL,
-                        // 羊的逻辑还没写好，暂时先留空或者继续用羊毛
+                        sheepEntityId = sheep.uniqueId // 将这只羊的 UUID 存入据点数据
                     )
                     activeBases[newBaseId] = newBase
+
                     coreLocation.block.type = Material.GRAY_WOOL
 
 
