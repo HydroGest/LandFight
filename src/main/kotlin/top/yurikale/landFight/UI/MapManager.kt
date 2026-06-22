@@ -67,13 +67,17 @@ class BaseMapRenderer(private val plugin: LandFight) : MapRenderer(false) {
 
         // 绘制所有据点
         val bases = plugin.structurePlacer.activeBases
-        bases.forEach { (locStr, ownerName) ->
-            val loc = parseLocation(locStr) ?: return@forEach
+
+        // 直接遍历 values，拿到每一个 Base 对象
+        bases.values.forEach { base ->
+            val loc = base.location
             val pixelX = worldToPixel(loc.blockX)
             val pixelZ = worldToPixel(loc.blockZ)
-            val dotColor = when (ownerName) {
-                TeamColor.RED.name -> MapPalette.RED
-                TeamColor.BLUE.name -> MapPalette.BLUE
+
+            // 直接通过 base.ownerTeam 枚举进行判断
+            val dotColor = when (base.ownerTeam) {
+                TeamColor.RED -> MapPalette.RED
+                TeamColor.BLUE -> MapPalette.BLUE
                 else -> MapPalette.DARK_GRAY
             }
             drawDot(canvas, pixelX, pixelZ, dotColor, radius = 1)
@@ -120,16 +124,5 @@ class BaseMapRenderer(private val plugin: LandFight) : MapRenderer(false) {
                 }
             }
         }
-    }
-
-    private fun parseLocation(str: String): Location? {
-        val split = str.split(", ")
-        if (split.size != 4) return null
-        val worldName = split[0]
-        val x = split[1].toIntOrNull() ?: return null
-        val y = split[2].toIntOrNull() ?: return null
-        val z = split[3].toIntOrNull() ?: return null
-        val world = Bukkit.getWorld(worldName) ?: return null
-        return Location(world, x.toDouble(), y.toDouble(), z.toDouble())
     }
 }
