@@ -7,6 +7,7 @@ import top.yurikale.landFight.listener.GameListener
 import top.yurikale.landFight.world.StructurePlacer
 import top.yurikale.landFight.world.WorldManager
 import top.yurikale.landFight.state.GameStateManager
+import top.yurikale.landFight.state.NetworkGraph
 import top.yurikale.landFight.team.TeamManager
 import top.yurikale.landFight.ui.MapManager
 import top.yurikale.landFight.ui.SidebarManager
@@ -25,6 +26,8 @@ class LandFight : JavaPlugin() {
         private set
     lateinit var mapManager: MapManager
         private set
+//    lateinit var networkGraph: NetworkGraph
+//      private set
 
     var currentGameTask: top.yurikale.landFight.state.GameTask? = null
     var lobbyCountdownTask: org.bukkit.scheduler.BukkitRunnable? = null
@@ -45,6 +48,7 @@ class LandFight : JavaPlugin() {
         teamManager = TeamManager(this)
         sidebarManager = SidebarManager(this)
         mapManager = MapManager(this)
+//        networkGraph = NetworkGraph()
 
         server.pluginManager.registerEvents(GameListener(this), this)
         getCommand("lf")?.setExecutor(GameCommand(this))

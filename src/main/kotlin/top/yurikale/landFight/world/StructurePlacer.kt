@@ -14,9 +14,14 @@ import java.util.Random
 import org.bukkit.boss.BossBar
 import org.bukkit.boss.BarColor
 import org.bukkit.boss.BarStyle
+import top.yurikale.landFight.state.Base
+import top.yurikale.landFight.state.NetworkGraph
 
 class StructurePlacer(private val plugin: LandFight) {
-    val activeBases = HashMap<String, String>()
+
+    // 在 StructurePlacer.kt 或者 StateManager.kt 里：
+    val activeBases = mutableMapOf<Int, Base>() // ID -> 据点对象
+    val networkGraph = NetworkGraph() // 实例化那张交通网
 
     // 所有据点原生建筑方块坐标字符串
     val allBaseStructureBlocks = mutableSetOf<String>()
@@ -55,18 +60,10 @@ class StructurePlacer(private val plugin: LandFight) {
         spawnProgressBar = null
     }
 
-
     fun getCapturedNumber(color: TeamColor): Int {
-        var num = 0;
-        val bases = plugin.stateManager.bases
-        if (bases == null) return 0
-        for (base in bases) {
-            when (plugin.structurePlacer.activeBases[plugin.structurePlacer.location2String(base)]) {
-                color.name -> num++
-                else -> continue
-            }
+        return plugin.structurePlacer.activeBases.values.count { base ->
+            base.ownerTeam == color
         }
-        return num
     }
 
 
@@ -152,8 +149,18 @@ class StructurePlacer(private val plugin: LandFight) {
                     }
 
                     val coreLocation = targetLocation.clone().add(6.0, 4.0, 6.0)
-                    activeBases[location2String(coreLocation)] = "Neutral"
+
+
+                    val newBaseId = spawned // 0 到 29
+                    val newBase = Base(
+                        id = newBaseId,
+                        location = coreLocation,
+                        ownerTeam = TeamColor.NEUTRAL,
+                        // 羊的逻辑还没写好，暂时先留空或者继续用羊毛
+                    )
+                    activeBases[newBaseId] = newBase
                     coreLocation.block.type = Material.GRAY_WOOL
+
 
                     synchronized(generatedLocations) {
                         spawned++

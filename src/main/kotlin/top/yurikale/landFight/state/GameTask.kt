@@ -7,6 +7,7 @@ import org.bukkit.boss.BossBar
 import org.bukkit.scheduler.BukkitRunnable
 import top.yurikale.landFight.LandFight
 import top.yurikale.landFight.team.TeamColor
+import org.bukkit.Location
 
 class GameTask(private val plugin: LandFight) : BukkitRunnable() {
     private var timeLeft = 2700 // 总45分钟 = 2700秒
@@ -17,6 +18,12 @@ class GameTask(private val plugin: LandFight) : BukkitRunnable() {
     private var blueEmptyTick = 0
 
     private var gameCountdownBar: BossBar? = null
+
+    private fun getBaseIdAt(loc: Location): Int {
+        return plugin.structurePlacer.activeBases.values.find {
+            it.location.blockX == loc.blockX && it.location.blockY == loc.blockY && it.location.blockZ == loc.blockZ
+        }?.id ?: -1
+    }
 
     init {
         // 游戏启动时创建BossBar
@@ -40,6 +47,23 @@ class GameTask(private val plugin: LandFight) : BukkitRunnable() {
         if (timeLeft <= 0) {
             checkWinCondition(timeout = true)
             return
+        }
+
+        // 每 5 秒判定一次据点连通性
+        if (timeLeft % 5 == 0) {
+            for (base in plugin.structurePlacer.activeBases.values) {
+                if (base.ownerTeam == TeamColor.NEUTRAL) continue
+
+                val homeLoc = plugin.teamManager.teamsCapitals[base.ownerTeam]
+                // 这里假设你在 networkGraph 里有类似方法判断是否与大本营连通
+                val isConnected = homeLoc != null && plugin.structurePlacer.networkGraph.isConnected(base.id, getBaseIdAt(homeLoc))
+
+                if (!isConnected) {
+                    // TODO: 逻辑分支
+                    // 1. 如果据点断网，可以通过给玩家发消息、或者让据点变色（如变成灰色/闪烁）来提示
+                    // 2. 这里可以设置据点产出资源为 0
+                }
+            }
         }
 
         // 格式化时分秒
@@ -123,20 +147,21 @@ class GameTask(private val plugin: LandFight) : BukkitRunnable() {
     }
 
     private fun calculateBasesAndEnd() {
-        var redBases = 0;
-        var blueBases = 0;
-        val bases = plugin.structurePlacer.activeBases
-        for (ownerTeamName in bases.values) {
-            when (ownerTeamName) {
-                TeamColor.RED.name -> redBases++
-                TeamColor.BLUE.name -> blueBases++
+        var redBases = 0
+        var blueBases = 0
+
+        for (base in plugin.structurePlacer.activeBases.values) {
+            when (base.ownerTeam) {
+                TeamColor.RED -> redBases++
+                TeamColor.BLUE -> blueBases++
                 else -> {}
             }
         }
+
         Bukkit.broadcastMessage("最终据点数：红队（${redBases}）-蓝队（${blueBases}）")
         when {
-            redBases > blueBases -> Bukkit.broadcastMessage("红队占领了更多据点，红队胜利！")
-            blueBases > redBases -> Bukkit.broadcastMessage("蓝队占领了更多据点，蓝队胜利！")
+            redBases > blueBases -> Bukkit.broadcastMessage("§c红队§f占领了更多据点，红队胜利！")
+            blueBases > redBases -> Bukkit.broadcastMessage("§9蓝队§f占领了更多据点，蓝队胜利！")
             else -> Bukkit.broadcastMessage("平局！")
         }
         endGame()

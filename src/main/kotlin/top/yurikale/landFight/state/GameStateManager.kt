@@ -8,6 +8,12 @@ import org.bukkit.inventory.meta.CompassMeta
 import top.yurikale.landFight.LandFight
 
 class GameStateManager(private val plugin: LandFight) {
+    fun isSameBlockPos(loc1: org.bukkit.Location, loc2: org.bukkit.Location): Boolean {
+        return loc1.world?.name == loc2.world?.name &&
+                loc1.blockX == loc2.blockX &&
+                loc1.blockY == loc2.blockY &&
+                loc1.blockZ == loc2.blockZ
+    }
 
     // 默认状态为大厅
     var currentState: GameState = GameState.LOBBY
@@ -89,31 +95,22 @@ class GameStateManager(private val plugin: LandFight) {
                                 val redBaseSpawn = shuffledBases[0]
                                 val blueBaseSpawn = shuffledBases[1]
 
-                                plugin.logger.info("Base selected! (1/3)")
+                                val redBase = plugin.structurePlacer.activeBases.values.find { isSameBlockPos(it.location, redBaseSpawn) }
+                                val blueBase = plugin.structurePlacer.activeBases.values.find { isSameBlockPos(it.location, blueBaseSpawn) }
 
-                                plugin.structurePlacer.activeBases[plugin.structurePlacer.location2String(redBaseSpawn)] =
-                                    top.yurikale.landFight.team.TeamColor.RED.name
-                                plugin.structurePlacer.activeBases[plugin.structurePlacer.location2String(blueBaseSpawn)] =
-                                    top.yurikale.landFight.team.TeamColor.BLUE.name
+                                if (redBase != null && blueBase != null) {
+                                    redBase.ownerTeam = top.yurikale.landFight.team.TeamColor.RED
+                                    blueBase.ownerTeam = top.yurikale.landFight.team.TeamColor.BLUE
 
-                                // 红队初始大本营：红色羊毛 + Y+13红色染色玻璃
-                                val redWoolBlock = redBaseSpawn.block
-                                redWoolBlock.type = org.bukkit.Material.RED_WOOL
-                                val redGlassLoc = redBaseSpawn.clone().add(0.0, 13.0, 0.0)
-                                redGlassLoc.block.type = org.bukkit.Material.RED_STAINED_GLASS
+                                    redBase.location.block.type = org.bukkit.Material.RED_WOOL
+                                    redBase.location.clone().add(0.0, 13.0, 0.0).block.type = org.bukkit.Material.RED_STAINED_GLASS
 
-                                // 蓝队初始大本营：蓝色羊毛 + Y+13蓝色染色玻璃
-                                val blueWoolBlock = blueBaseSpawn.block
-                                blueWoolBlock.type = org.bukkit.Material.BLUE_WOOL
-                                val blueGlassLoc = blueBaseSpawn.clone().add(0.0, 13.0, 0.0)
-                                blueGlassLoc.block.type = org.bukkit.Material.BLUE_STAINED_GLASS
+                                    blueBase.location.block.type = org.bukkit.Material.BLUE_WOOL
+                                    blueBase.location.clone().add(0.0, 13.0, 0.0).block.type = org.bukkit.Material.BLUE_STAINED_GLASS
 
-                                plugin.logger.info("Base set! (2/3)")
-
-                                plugin.teamManager.teamsCapitals[top.yurikale.landFight.team.TeamColor.RED] =
-                                    redBaseSpawn
-                                plugin.teamManager.teamsCapitals[top.yurikale.landFight.team.TeamColor.BLUE] =
-                                    blueBaseSpawn
+                                    plugin.teamManager.teamsCapitals[top.yurikale.landFight.team.TeamColor.RED] = redBase.location
+                                    plugin.teamManager.teamsCapitals[top.yurikale.landFight.team.TeamColor.BLUE] = blueBase.location
+                                }
 
                                 plugin.logger.info("Base ready! (3/3)")
 
