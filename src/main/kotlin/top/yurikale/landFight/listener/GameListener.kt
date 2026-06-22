@@ -87,31 +87,25 @@ class GameListener(private val plugin: LandFight) : Listener {
             org.bukkit.Bukkit.broadcastMessage("§e【据点占领】${myTeam.colorCode}${damager.name}§e 击破了守卫羊，成功占领据点 (${targetBase.location.blockX}, ${targetBase.location.blockY}, ${targetBase.location.blockZ})！")
 
             // 4. 视觉刷新：修改羊的颜色和名字
-            val dyeColor = when(myTeam) {
-                TeamColor.RED -> org.bukkit.DyeColor.RED
-                TeamColor.BLUE -> org.bukkit.DyeColor.BLUE
-                else -> org.bukkit.DyeColor.GRAY
-            }
-            victim.color = dyeColor
-            victim.customName = "${myTeam.colorCode}■ ${myTeam.displayName}的据点 ■"
+            plugin.structurePlacer.refreshBaseVisual(targetBase, plugin.structurePlacer.isBaseCapital(targetBase.id))
+        }
+    }
 
-            // 5. 视觉刷新：修改底座羊毛和天空玻璃
-            val woolBlock = targetBase.location.block
-            val glassBlock = targetBase.location.clone().add(0.0, 13.0, 0.0).block
-            when(myTeam) {
-                TeamColor.RED -> {
-                    woolBlock.type = Material.RED_WOOL
-                    glassBlock.type = Material.RED_STAINED_GLASS
-                }
-                TeamColor.BLUE -> {
-                    woolBlock.type = Material.BLUE_WOOL
-                    glassBlock.type = Material.BLUE_STAINED_GLASS
-                }
-                else -> {
-                    woolBlock.type = Material.GRAY_WOOL
-                    glassBlock.type = Material.AIR
-                }
-            }
+    @EventHandler
+    fun onSheepEnvironmentalDamage(event: org.bukkit.event.entity.EntityDamageEvent) {
+        val entity = event.entity
+        if (entity !is org.bukkit.entity.Sheep) return
+
+        // 检查这只羊是不是据点核心
+        val isBaseSheep = plugin.structurePlacer.activeBases.values.any { it.sheepEntityId == entity.uniqueId }
+        if (!isBaseSheep) return
+
+        // 如果伤害来源不是其他实体（比如窒息、火焰、掉落、熔岩），直接无敌
+        if (event.cause != org.bukkit.event.entity.EntityDamageEvent.DamageCause.ENTITY_ATTACK &&
+            event.cause != org.bukkit.event.entity.EntityDamageEvent.DamageCause.ENTITY_SWEEP_ATTACK &&
+            event.cause != org.bukkit.event.entity.EntityDamageEvent.DamageCause.PROJECTILE) {
+
+            event.isCancelled = true
         }
     }
 
@@ -130,12 +124,21 @@ class GameListener(private val plugin: LandFight) : Listener {
 
         // 必须是自家的羊，且玩家必须在潜行（Shift）
         if (targetBase.ownerTeam == myTeam && player.isSneaking) {
-            val currentCapital = plugin.teamManager.teamsCapitals[myTeam]
-            if (currentCapital == null || !isSameBlockPos(currentCapital, targetBase.location)) {
-                plugin.teamManager.teamsCapitals[myTeam] = targetBase.location
-                player.sendMessage("§a【大本营】§f你已为本队更换新大本营！")
-                org.bukkit.Bukkit.broadcastMessage("§e【战略转移】§f${player.name} 为 ${myTeam.colorCode}${myTeam.displayName}§e 设立全新大本营！")
+            val oldCapitalLoc = plugin.teamManager.teamsCapitals[myTeam]
+            // 如果已有旧大本营，先把旧据点改回普通据点样式
+            oldCapitalLoc?.let { oldLoc ->
+                val oldBase = plugin.structurePlacer.activeBases.values
+                    .firstOrNull { plugin.stateManager.isSameBlockPos(it.location, oldLoc) }
+                oldBase?.let { plugin.structurePlacer.refreshBaseVisual(it, isCapital = false) }
             }
+
+            // 设置新大本营
+            plugin.teamManager.teamsCapitals[myTeam] = targetBase.location
+            // 刷新新据点为大本营样式
+            plugin.structurePlacer.refreshBaseVisual(targetBase, isCapital = true)
+
+            player.sendMessage("§a【大本营】§f你已为本队更换新大本营！")
+            org.bukkit.Bukkit.broadcastMessage("§e【战略转移】§f${player.name} 为 ${myTeam.colorCode}${myTeam.displayName}§e 设立全新大本营！")
         }
     }
 

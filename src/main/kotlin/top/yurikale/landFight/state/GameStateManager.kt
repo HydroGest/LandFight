@@ -6,6 +6,7 @@ import org.bukkit.attribute.Attribute
 import org.bukkit.inventory.ItemStack
 import org.bukkit.inventory.meta.CompassMeta
 import top.yurikale.landFight.LandFight
+import top.yurikale.landFight.team.TeamColor
 
 class GameStateManager(private val plugin: LandFight) {
     fun isSameBlockPos(loc1: org.bukkit.Location, loc2: org.bukkit.Location): Boolean {
@@ -20,21 +21,6 @@ class GameStateManager(private val plugin: LandFight) {
         private set
 
     var bases: List<org.bukkit.Location>? = null
-
-    fun getNorthCompass(): ItemStack {
-        val compass = ItemStack(Material.COMPASS)
-        val meta = compass.itemMeta as CompassMeta
-
-        // 超大负Z坐标，无限正北
-        val northLoc: org.bukkit.Location = org.bukkit.Location(null, 0.0, 64.0, -9999999.0)
-        meta.setLodestone(northLoc)
-        meta.setLodestoneTracked(true)
-
-        // 可选改名
-        meta.setDisplayName("§6指北针")
-        compass.setItemMeta(meta)
-        return compass
-    }
 
     fun switchState(newState: GameState) {
         if (currentState != GameState.LOBBY && currentState == newState) return
@@ -99,17 +85,15 @@ class GameStateManager(private val plugin: LandFight) {
                                 val blueBase = plugin.structurePlacer.activeBases.values.find { isSameBlockPos(it.location, blueBaseSpawn) }
 
                                 if (redBase != null && blueBase != null) {
-                                    redBase.ownerTeam = top.yurikale.landFight.team.TeamColor.RED
-                                    blueBase.ownerTeam = top.yurikale.landFight.team.TeamColor.BLUE
+                                    redBase.ownerTeam = TeamColor.RED
+                                    blueBase.ownerTeam = TeamColor.BLUE
 
-                                    redBase.location.block.type = org.bukkit.Material.RED_WOOL
-                                    redBase.location.clone().add(0.0, 13.0, 0.0).block.type = org.bukkit.Material.RED_STAINED_GLASS
+                                    plugin.teamManager.teamsCapitals[TeamColor.RED] = redBase.location
+                                    plugin.teamManager.teamsCapitals[TeamColor.BLUE] = blueBase.location
 
-                                    blueBase.location.block.type = org.bukkit.Material.BLUE_WOOL
-                                    blueBase.location.clone().add(0.0, 13.0, 0.0).block.type = org.bukkit.Material.BLUE_STAINED_GLASS
-
-                                    plugin.teamManager.teamsCapitals[top.yurikale.landFight.team.TeamColor.RED] = redBase.location
-                                    plugin.teamManager.teamsCapitals[top.yurikale.landFight.team.TeamColor.BLUE] = blueBase.location
+                                    // 刷新大本营专属视觉（羊、名字、玻璃羊毛）
+                                    plugin.structurePlacer.refreshBaseVisual(redBase, isCapital = true)
+                                    plugin.structurePlacer.refreshBaseVisual(blueBase, isCapital = true)
                                 }
 
                                 plugin.logger.info("Base ready! (3/3)")

@@ -1,11 +1,12 @@
 package top.yurikale.landFight.world
 
 import org.bukkit.Bukkit
+import org.bukkit.DyeColor
 import  top.yurikale.landFight.LandFight
 import org.bukkit.Location
 import org.bukkit.Material
-import org.bukkit.Tag
 import org.bukkit.World
+import org.bukkit.entity.Sheep
 import org.bukkit.block.structure.Mirror
 import org.bukkit.block.structure.StructureRotation
 import top.yurikale.landFight.team.TeamColor
@@ -94,32 +95,43 @@ class StructurePlacer(private val plugin: LandFight) {
 
         val generatedLocations = mutableListOf<Location>()
         var spawned = 0
-        var pendingTask = 0 // 当前正在执行的异步任务数
-        val maxConcurrent = 8 // 限制并发chunk加载，防止服务器炸线程
+        var pendingTask = 0
+        val maxConcurrent = 8
 
-        // 内部递归生成函数
-        fun trySpawnOne() {
-            // 已生成足够数量，且无正在执行的异步任务 → 完成
+        var isSpawnFinish = false
+
+        fun checkAllDone() {
             synchronized(generatedLocations) {
-                if (spawned >= count && pendingTask <= 0) {
+                if (isSpawnFinish && pendingTask <= 0) {
                     plugin.logger.info("All base initialized, total spawned: ${generatedLocations.size}.")
                     destroyProgressBar()
                     onComplete(generatedLocations)
-                    return
                 }
-                // 达到并发上限 或 已生成足够，暂停生成
-                if (pendingTask >= maxConcurrent || spawned >= count) return
+            }
+        }
+
+        fun trySpawnOne() {
+            synchronized(generatedLocations) {
+                // 已达标，直接退出，禁止任何新生成/重试
+                if (isSpawnFinish) return
+
+                // 并发上限控制
+                if (pendingTask >= maxConcurrent) return
             }
 
             pendingTask++
-            // 左右各缩5：-745 ~ 744
             val randomX = random.nextInt(1490) - 745
             val randomZ = random.nextInt(1490) - 745
             val chunkX = randomX shr 4
             val chunkZ = randomZ shr 4
 
             world.getChunkAtAsync(chunkX, chunkZ).thenAccept { chunk ->
+                var success = false
                 try {
+                    synchronized(generatedLocations) {
+                        if (isSpawnFinish) return@thenAccept
+                    }
+
                     val highestBlock = world.getHighestBlockAt(randomX, randomZ)
                     val highestY = highestBlock.y
                     val targetLocation = Location(world, randomX.toDouble(), highestY.toDouble(), randomZ.toDouble())
@@ -149,33 +161,38 @@ class StructurePlacer(private val plugin: LandFight) {
                     }
 
                     val coreLocation = targetLocation.clone().add(6.0, 4.0, 6.0)
-
-                    // 在底座上方生成实体羊
                     val spawnLoc = coreLocation.clone().add(0.5, 1.0, 0.5)
                     val sheep = world.spawn(spawnLoc, org.bukkit.entity.Sheep::class.java) { s ->
-                        s.setAI(false) // 站着当雕像
+                        s.setAI(false)
                         s.color = org.bukkit.DyeColor.GRAY
                         s.customName = "§7[中立据点]"
                         s.isCustomNameVisible = true
-                        // isInvulnerable = true
                     }
 
-                    val newBaseId = spawned // 0 到 29
+                    val sheepLoc = spawnLoc.block.location
+                    val glassPositions = listOf(Location(world, sheepLoc.x, sheepLoc.y + 1, sheepLoc.z))
+                    glassPositions.forEach { it.block.type = Material.GRAY_STAINED_GLASS }
+
                     val newBase = Base(
-                        id = newBaseId,
+                        id = spawned,
                         location = coreLocation,
                         ownerTeam = TeamColor.NEUTRAL,
-                        sheepEntityId = sheep.uniqueId // 将这只羊的 UUID 存入据点数据
+                        sheepEntityId = sheep.uniqueId
                     )
-                    activeBases[newBaseId] = newBase
-
+                    activeBases[newBase.id] = newBase
                     coreLocation.block.type = Material.GRAY_WOOL
 
-
+                    success = true
                     synchronized(generatedLocations) {
-                        spawned++
-                        generatedLocations.add(coreLocation)
-                        updateProgressBar(spawned, count)
+                        if (spawned < count) {
+                            spawned++
+                            generatedLocations.add(coreLocation)
+                            updateProgressBar(spawned, count)
+                            // 刚好达到目标数量，标记完成
+                            if (spawned >= count) {
+                                isSpawnFinish = true
+                            }
+                        }
                     }
                     plugin.logger.info("Success generated base at [${randomX}, ${highestY}, ${randomZ}]")
                 } catch (e: Exception) {
@@ -184,13 +201,19 @@ class StructurePlacer(private val plugin: LandFight) {
                     synchronized(generatedLocations) {
                         pendingTask--
                     }
-                    // 立刻再次调用，补生成缺口
-                    trySpawnOne()
+                    // 只有未完成才重试
+                    synchronized(generatedLocations) {
+                        if (!isSpawnFinish) {
+                            trySpawnOne()
+                        }
+                    }
+                    // 每次任务结束都检查是否全部收尾
+                    checkAllDone()
                 }
             }
         }
 
-        // 启动多轮生成
+        // 启动初始并发
         repeat(maxConcurrent) {
             trySpawnOne()
         }
@@ -205,4 +228,76 @@ class StructurePlacer(private val plugin: LandFight) {
             }
         }
     }
+
+    /**
+     * 刷新一个据点完整视觉：羊染色、名字、底座羊毛、头顶染色玻璃
+     * @param base 目标据点
+     * @param isCapital 是否为本队大本营（区分样式）
+     */
+    fun refreshBaseVisual(base: Base, isCapital: Boolean) {
+        val sheep = plugin.server.getEntity(base.sheepEntityId ?: return) as? Sheep ?: return
+        val owner = base.ownerTeam ?: TeamColor.NEUTRAL
+
+        // 1. 修改羊颜色、名称
+        when(owner) {
+            TeamColor.NEUTRAL -> {
+                sheep.color = DyeColor.GRAY
+                sheep.customName = "§7[中立据点]"
+            }
+            TeamColor.RED -> {
+                sheep.color = DyeColor.RED
+                sheep.customName = if(isCapital) "§c■ 红队【大本营】■" else "§c■ 红队据点 ■"
+            }
+            TeamColor.BLUE -> {
+                sheep.color = DyeColor.BLUE
+                sheep.customName = if(isCapital) "§9■ 蓝队【大本营】■" else "§9■ 蓝队据点 ■"
+            }
+        }
+        sheep.isCustomNameVisible = true
+
+        // 2. 据点底座羊毛
+        val woolLoc = base.location
+        val woolBlock = woolLoc.block
+        // 3. 据点13格高空玻璃标识
+        val glassHighLoc = woolLoc.clone().add(0.0,13.0,0.0)
+        val glassHighBlock = glassHighLoc.block
+        // 4. 羊头顶1格染色玻璃
+        val sheepTopLoc = sheep.location.block.location.add(0.0,1.0,0.0)
+        val sheepTopBlock = sheepTopLoc.block
+
+        when(owner) {
+            TeamColor.NEUTRAL -> {
+                woolBlock.type = Material.GRAY_WOOL
+                glassHighBlock.type = Material.AIR
+                sheepTopBlock.type = Material.GRAY_STAINED_GLASS
+            }
+            TeamColor.RED -> {
+                woolBlock.type = Material.RED_WOOL
+                glassHighBlock.type = Material.RED_STAINED_GLASS
+                sheepTopBlock.type = Material.RED_STAINED_GLASS
+            }
+            TeamColor.BLUE -> {
+                woolBlock.type = Material.BLUE_WOOL
+                glassHighBlock.type = Material.BLUE_STAINED_GLASS
+                sheepTopBlock.type = Material.BLUE_STAINED_GLASS
+            }
+        }
+    }
+
+    /** 根据据点ID获取是否是某队伍当前大本营 */
+    fun isBaseCapital(baseId: Int): Boolean {
+        val base = activeBases[baseId] ?: return false
+        val redCap = plugin.teamManager.teamsCapitals[TeamColor.RED]
+        val blueCap = plugin.teamManager.teamsCapitals[TeamColor.BLUE]
+        return (redCap != null && isSameBlockPos(base.location, redCap))
+                || (blueCap != null && isSameBlockPos(base.location, blueCap))
+    }
+
+    private fun isSameBlockPos(loc1: Location, loc2: Location): Boolean {
+        return loc1.world?.name == loc2.world?.name
+                && loc1.blockX == loc2.blockX
+                && loc1.blockY == loc2.blockY
+                && loc1.blockZ == loc2.blockZ
+    }
+
 }
