@@ -71,7 +71,9 @@ class StructurePlacer(private val plugin: LandFight) {
 
     private fun blockPosKey(x: Int, y: Int, z: Int): String = "$x,$y,$z"
 
-    fun spawnAllBases(world: World, count: Int = 15, onComplete: (List<Location>) -> Unit) { // 这里默认值改为了15
+    data class GridCell(val col: Int, val row: Int)
+
+    fun spawnAllBases(world: World, count: Int = 15, onComplete: (List<Location>) -> Unit) {
         plugin.logger.info("Started to async spawn all bases for ${world.name}, target count: $count.")
         activeBases.clear()
         allBaseStructureBlocks.clear()
@@ -89,6 +91,19 @@ class StructurePlacer(private val plugin: LandFight) {
         val structureManager = Bukkit.getStructureManager()
         val structure = structureManager.loadStructure(nbtFile)
         val random = Random()
+
+        // 世界范围 -750 到 750 (共1500)，划分为 6x6 的网格，每个 250x250
+        val allCells = mutableListOf<GridCell>()
+        for (c in 0 until 6) {
+            for (r in 0 until 6) {
+                allCells.add(GridCell(c, r))
+            }
+        }
+
+        // 随机打乱，并只抽取用户需要的数量 (15个)
+        allCells.shuffle(random)
+        // 这是一个“任务池”，里面装了 15 个被选中的 250x250 区域
+        val targetCells = allCells.take(count).toMutableList()
 
         val generatedLocations = mutableListOf<Location>()
         var spawned = 0
@@ -108,19 +123,35 @@ class StructurePlacer(private val plugin: LandFight) {
         }
 
         fun trySpawnOne() {
+            var cellTask: GridCell? = null
+
             synchronized(generatedLocations) {
                 if (isSpawnFinish) return
                 if (pendingTask >= maxConcurrent) return
+                if (targetCells.isEmpty()) return // 如果任务池空了，说明要么在重试中，要么即将完成
+
+                // 从任务池取出一个区域
+                cellTask = targetCells.removeAt(0)
             }
 
+            // 如果没拿到任务就直接退出
+            if (cellTask == null) return
+
             pendingTask++
-            val randomX = random.nextInt(1490) - 745
-            val randomZ = random.nextInt(1490) - 745
+
+            // 计算该网格的左上角起点 (col 0~5, row 0~5)
+            val minX = -750 + cellTask!!.col * 250
+            val minZ = -750 + cellTask!!.row * 250
+
+            // 在该网格内随机取点
+            // 为了防止建筑（宽约15格）跨越出 250 的边界，将随机范围缩小 15 格
+            val randomX = minX + random.nextInt(250 - 15)
+            val randomZ = minZ + random.nextInt(250 - 15)
+
             val chunkX = randomX shr 4
             val chunkZ = randomZ shr 4
 
             world.getChunkAtAsync(chunkX, chunkZ).thenAccept { chunk ->
-                var success = false
                 try {
                     synchronized(generatedLocations) {
                         if (isSpawnFinish) return@thenAccept
@@ -136,8 +167,11 @@ class StructurePlacer(private val plugin: LandFight) {
 
                     if (isOnLeaves || isOnLogs || isOnBamboo) {
                         plugin.logger.info("Skipped spawn at X:$randomX Z:$randomZ due to invalid surface: $material")
-                        // 直接 return 跳出 try 块。
-                        // 由于 finally 块的存在，程序会自动触发重试
+                        // 如果生成失败，把这个网格任务重新塞回池子里！
+                        // 确保下一次重试仍然是在这个指定的 250x250 区域内进行，直到该区域成功生成 1 个据点
+                        synchronized(generatedLocations) {
+                            targetCells.add(cellTask!!)
+                        }
                         return@thenAccept
                     }
 
@@ -189,7 +223,6 @@ class StructurePlacer(private val plugin: LandFight) {
                     activeBases[newBase.id] = newBase
                     coreLocation.block.type = Material.GRAY_WOOL
 
-//                    success = true
                     synchronized(generatedLocations) {
                         if (spawned < count) {
                             spawned++
@@ -200,16 +233,20 @@ class StructurePlacer(private val plugin: LandFight) {
                             }
                         }
                     }
-                    plugin.logger.info("Success generated base at [${randomX}, ${highestY}, ${randomZ}]")
+                    plugin.logger.info("Success generated base at [${randomX}, ${highestY}, ${randomZ}] (Cell: ${cellTask!!.col}, ${cellTask!!.row})")
                 } catch (e: Exception) {
                     plugin.logger.warning("Failed spawn at X:$randomX Z:$randomZ, will retry. Error: ${e.message}")
+                    // 【核心改动】：发生异常同样塞回任务池重试
+                    synchronized(generatedLocations) {
+                        targetCells.add(cellTask!!)
+                    }
                 } finally {
                     synchronized(generatedLocations) {
                         pendingTask--
                     }
                     synchronized(generatedLocations) {
-                        // 只要没达到指定数量，就会继续尝试生成
-                        if (!isSpawnFinish) {
+                        // 只要池子里还有任务没做完，就继续触发并发
+                        if (!isSpawnFinish && targetCells.isNotEmpty()) {
                             trySpawnOne()
                         }
                     }
