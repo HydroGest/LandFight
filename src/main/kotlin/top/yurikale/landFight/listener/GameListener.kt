@@ -311,27 +311,22 @@ class GameListener(private val plugin: LandFight) : Listener {
 
         event.isCancelled = true
 
-        val menuHolder = top.yurikale.landFight.ui.BaseMenuHolder(currentBase)
+        val menuHolder = top.yurikale.landFight.ui.BaseMenuHolder(currentBase, plugin)
         menuHolder.setupMainMenu()
 
         player.openInventory(menuHolder.inventory)
         player.playSound(player.location, org.bukkit.Sound.BLOCK_CHEST_OPEN, 1.0f, 1.1f)
     }
 
-    // 防抽走菜单物品的点击监听
+    // 统管所有菜单的点击事件 (究极进化版)
     @EventHandler
     fun onMenuClick(event: org.bukkit.event.inventory.InventoryClickEvent) {
         val holder = event.inventory.holder
-        if (holder is top.yurikale.landFight.ui.BaseMenuHolder) {
-            event.isCancelled = true
 
-            val clickedItem = event.currentItem ?: return
-            val player = event.whoClicked as? Player ?: return
-
-            if (event.rawSlot == 13) {
-//                player.sendMessage("§e[二级菜单提示] 你点击了状态")
-                player.playSound(player.location, org.bukkit.Sound.UI_BUTTON_CLICK, 1.0f, 1.2f)
-            }
+        // 只要点击的界面是我们自己写的 ActionMenu 基类
+        if (holder is top.yurikale.landFight.ui.ActionMenu) {
+            // 把事件全权移交给对应的界面自己处理
+            holder.handleClick(event)
         }
     }
 }

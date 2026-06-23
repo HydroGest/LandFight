@@ -14,5 +14,6 @@ data class Base(
     // 资源产出权重 (异步扫描后填入)
     var ironWeight: Double = 0.0,
     var woodWeight: Double = 0.0,
-    var inAbsoluteProtection: Boolean = false
+    var inAbsoluteProtection: Boolean = false,
+    var healthTimer: Int = 0,
 )

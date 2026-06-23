@@ -19,6 +19,8 @@ class GameTask(private val plugin: LandFight) : BukkitRunnable() {
 
     private var gameCountdownBar: BossBar? = null
 
+//    private var tickCounter = 0L
+
     private fun getBaseIdAt(loc: Location): Int {
         return plugin.structurePlacer.activeBases.values.find {
             it.location.blockX == loc.blockX && it.location.blockY == loc.blockY && it.location.blockZ == loc.blockZ
@@ -136,6 +138,27 @@ class GameTask(private val plugin: LandFight) : BukkitRunnable() {
             }
         }
 
+        plugin.structurePlacer.activeBases.values.forEach { base ->
+            val sheep = plugin.server.getEntity(base.sheepEntityId ?: return@forEach) as? org.bukkit.entity.Sheep ?: return@forEach
+            val maxHp = sheep.getAttribute(org.bukkit.attribute.Attribute.MAX_HEALTH)?.value ?: 50.0
+
+            // 只有没满血时才处理
+            if (sheep.health < maxHp) {
+                val shouldHeal = when (base.level) {
+                    1 -> timeLeft % 3 == 0 // 3秒回1滴
+                    2 -> timeLeft % 2 == 0 // 2秒回1滴
+                    3 -> timeLeft % 1 == 0 // 1秒回1滴
+                    else -> false
+                }
+
+                if (shouldHeal) {
+                    // 安全加血，防止溢出最大生命值
+                    sheep.health = (sheep.health + 1.0).coerceAtMost(maxHp)
+                    // 刷新羊头顶血条名字
+                    plugin.structurePlacer.refreshBaseVisual(base, plugin.structurePlacer.isBaseCapital(base.id))
+                }
+            }
+        }
 
         timeLeft--
     }

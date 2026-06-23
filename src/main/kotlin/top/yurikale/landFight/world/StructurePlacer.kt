@@ -208,6 +208,8 @@ class StructurePlacer(private val plugin: LandFight) {
                         s.color = org.bukkit.DyeColor.GRAY
                         s.customName = "§7[中立据点]"
                         s.isCustomNameVisible = true
+                        s.getAttribute(Attribute.MAX_HEALTH)?.baseValue = 50.0
+                        s.health = 50.0
                     }
 
                     val sheepLoc = spawnLoc.block.location
