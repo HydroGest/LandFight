@@ -344,4 +344,24 @@ class StructurePlacer(private val plugin: LandFight) {
                 && loc1.blockY == loc2.blockY
                 && loc1.blockZ == loc2.blockZ
     }
+
+    fun getBaseAtPlayer(loc: org.bukkit.Location): Base? {
+        if (loc.world?.name != plugin.worldManager.gameWorldName) return null
+        val px = loc.blockX
+        val py = loc.blockY
+        val pz = loc.blockZ
+
+        // 1. 优先通过你的 AABB 边界精确检测 (250x250 内的建筑区域)
+        // 允许适当往外宽限 3 格作为“进入据点”的提示缓冲区
+        allBaseBounds.forEachIndexed { index, bound ->
+            if (px in (bound.minX - 3)..(bound.maxX + 3) &&
+                py in (bound.minY - 2)..(bound.maxY + 5) &&
+                pz in (bound.minZ - 3)..(bound.maxZ + 3)
+            ) {
+                // 通过索引或坐标映射找到对应的 Base，最稳妥的是遍历 activeBases
+                return activeBases[index]
+            }
+        }
+        return null
+    }
 }

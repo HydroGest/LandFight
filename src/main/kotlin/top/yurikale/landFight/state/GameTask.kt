@@ -119,6 +119,24 @@ class GameTask(private val plugin: LandFight) : BukkitRunnable() {
         val pointStatus = "${TeamColor.RED.colorCode}${plugin.structurePlacer.getCapturedNumber(TeamColor.RED)} §a- ${TeamColor.BLUE.colorCode}${plugin.structurePlacer.getCapturedNumber(TeamColor.BLUE)}"
         plugin.sidebarManager.updateSidebar(redAlive, blueAlive, redBase, blueBase, pointStatus)
 
+        // 遍历在线生存模式玩家，发送据点提示
+        for (player in Bukkit.getOnlinePlayers()) {
+            if (player.gameMode != org.bukkit.GameMode.SURVIVAL) continue
+
+            val currentBase = plugin.structurePlacer.getBaseAtPlayer(player.location)
+            if (currentBase != null) {
+                val team = currentBase.ownerTeam ?: TeamColor.NEUTRAL
+                val teamPrefix = "${team.colorCode}[${team.displayName}据点] "
+
+                // 发送 Actionbar 提示
+                player.spigot().sendMessage(
+                    net.md_5.bungee.api.ChatMessageType.ACTION_BAR,
+                    net.md_5.bungee.api.chat.TextComponent("${teamPrefix}§f已进入据点。§e左键攻击羊占领，右键羊设为大本营 §b| §6[潜行+F] 打开据点菜单")
+                )
+            }
+        }
+
+
         timeLeft--
     }
 

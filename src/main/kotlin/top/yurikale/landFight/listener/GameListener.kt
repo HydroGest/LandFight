@@ -289,4 +289,49 @@ class GameListener(private val plugin: LandFight) : Listener {
             damager.sendMessage("§c大厅禁止PVP！")
         }
     }
+
+    @EventHandler
+    fun onPlayerSwapHandItems(event: org.bukkit.event.player.PlayerSwapHandItemsEvent) {
+        val player = event.player
+        if (plugin.stateManager.currentState != GameState.IN_GAME) return
+
+        if (!player.isSneaking) return
+
+        val currentBase = plugin.structurePlacer.getBaseAtPlayer(player.location) ?: return
+
+        val myTeam = plugin.teamManager.getPlayerTeam(player)
+
+        if (currentBase.ownerTeam == TeamColor.NEUTRAL || currentBase.ownerTeam != myTeam) {
+            event.isCancelled = true
+
+            val ownerTeam = currentBase.ownerTeam ?: TeamColor.NEUTRAL
+            player.sendMessage("§c§l【访问拒绝】 §c这里是 ${ownerTeam.colorCode}${ownerTeam.displayName} §c的据点，你无法查看其战略菜单！")
+            return
+        }
+
+        event.isCancelled = true
+
+        val menuHolder = top.yurikale.landFight.ui.BaseMenuHolder(currentBase)
+        menuHolder.setupMainMenu()
+
+        player.openInventory(menuHolder.inventory)
+        player.playSound(player.location, org.bukkit.Sound.BLOCK_CHEST_OPEN, 1.0f, 1.1f)
+    }
+
+    // 防抽走菜单物品的点击监听
+    @EventHandler
+    fun onMenuClick(event: org.bukkit.event.inventory.InventoryClickEvent) {
+        val holder = event.inventory.holder
+        if (holder is top.yurikale.landFight.ui.BaseMenuHolder) {
+            event.isCancelled = true
+
+            val clickedItem = event.currentItem ?: return
+            val player = event.whoClicked as? Player ?: return
+
+            if (event.rawSlot == 13) {
+//                player.sendMessage("§e[二级菜单提示] 你点击了状态")
+                player.playSound(player.location, org.bukkit.Sound.UI_BUTTON_CLICK, 1.0f, 1.2f)
+            }
+        }
+    }
 }
