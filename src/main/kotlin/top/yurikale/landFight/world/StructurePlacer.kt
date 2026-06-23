@@ -6,6 +6,7 @@ import top.yurikale.landFight.LandFight
 import org.bukkit.Location
 import org.bukkit.attribute.Attribute
 import org.bukkit.Material
+import org.bukkit.Tag
 import org.bukkit.World
 import org.bukkit.entity.Sheep
 import org.bukkit.block.structure.Mirror
@@ -68,14 +69,9 @@ class StructurePlacer(private val plugin: LandFight) {
         }
     }
 
-
-    fun location2String(location: Location): String {
-        return "${location.world?.name}, ${location.x.toInt()}, ${location.y.toInt()}, ${location.z.toInt()}"
-    }
-
     private fun blockPosKey(x: Int, y: Int, z: Int): String = "$x,$y,$z"
 
-    fun spawnAllBases(world: World, count: Int = 100, onComplete: (List<Location>) -> Unit) {
+    fun spawnAllBases(world: World, count: Int = 15, onComplete: (List<Location>) -> Unit) { // 这里默认值改为了15
         plugin.logger.info("Started to async spawn all bases for ${world.name}, target count: $count.")
         activeBases.clear()
         allBaseStructureBlocks.clear()
@@ -113,10 +109,7 @@ class StructurePlacer(private val plugin: LandFight) {
 
         fun trySpawnOne() {
             synchronized(generatedLocations) {
-                // 已达标，直接退出，禁止任何新生成/重试
                 if (isSpawnFinish) return
-
-                // 并发上限控制
                 if (pendingTask >= maxConcurrent) return
             }
 
@@ -135,6 +128,19 @@ class StructurePlacer(private val plugin: LandFight) {
 
                     val highestBlock = world.getHighestBlockAt(randomX, randomZ)
                     val highestY = highestBlock.y
+                    val material = highestBlock.type
+
+                    val isOnLeaves = Tag.LEAVES.isTagged(material)
+                    val isOnLogs = Tag.LOGS.isTagged(material)
+                    val isOnBamboo = material == Material.BAMBOO || material.name.contains("BAMBOO")
+
+                    if (isOnLeaves || isOnLogs || isOnBamboo) {
+                        plugin.logger.info("Skipped spawn at X:$randomX Z:$randomZ due to invalid surface: $material")
+                        // 直接 return 跳出 try 块。
+                        // 由于 finally 块的存在，程序会自动触发重试
+                        return@thenAccept
+                    }
+
                     val targetLocation = Location(world, randomX.toDouble(), highestY.toDouble(), randomZ.toDouble())
                     targetLocation.chunk.load(true)
 
@@ -183,13 +189,12 @@ class StructurePlacer(private val plugin: LandFight) {
                     activeBases[newBase.id] = newBase
                     coreLocation.block.type = Material.GRAY_WOOL
 
-                    success = true
+//                    success = true
                     synchronized(generatedLocations) {
                         if (spawned < count) {
                             spawned++
                             generatedLocations.add(coreLocation)
                             updateProgressBar(spawned, count)
-                            // 刚好达到目标数量，标记完成
                             if (spawned >= count) {
                                 isSpawnFinish = true
                             }
@@ -197,24 +202,22 @@ class StructurePlacer(private val plugin: LandFight) {
                     }
                     plugin.logger.info("Success generated base at [${randomX}, ${highestY}, ${randomZ}]")
                 } catch (e: Exception) {
-                    plugin.logger.warning("Failed spawn at X:$randomX Z:$randomZ, will retry")
+                    plugin.logger.warning("Failed spawn at X:$randomX Z:$randomZ, will retry. Error: ${e.message}")
                 } finally {
                     synchronized(generatedLocations) {
                         pendingTask--
                     }
-                    // 只有未完成才重试
                     synchronized(generatedLocations) {
+                        // 只要没达到指定数量，就会继续尝试生成
                         if (!isSpawnFinish) {
                             trySpawnOne()
                         }
                     }
-                    // 每次任务结束都检查是否全部收尾
                     checkAllDone()
                 }
             }
         }
 
-        // 启动初始并发
         repeat(maxConcurrent) {
             trySpawnOne()
         }
@@ -304,5 +307,4 @@ class StructurePlacer(private val plugin: LandFight) {
                 && loc1.blockY == loc2.blockY
                 && loc1.blockZ == loc2.blockZ
     }
-
 }

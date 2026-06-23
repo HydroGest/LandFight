@@ -114,14 +114,22 @@ class GameListener(private val plugin: LandFight) : Listener {
 
     }
 
+    private val interactCooldown = mutableMapOf<java.util.UUID, Long>()
+
     @EventHandler
     fun onPlayerInteractEntity(event: PlayerInteractEntityEvent) {
+        if (event.hand == org.bukkit.inventory.EquipmentSlot.OFF_HAND) return
         if (plugin.stateManager.currentState != GameState.IN_GAME) return
         val entity = event.rightClicked
         if (entity !is Sheep) return
 
         val player = event.player
         if (player.gameMode != GameMode.SURVIVAL) return
+
+        val now = System.currentTimeMillis()
+        if (now - (interactCooldown[player.uniqueId] ?: 0L) < 1000L) {
+            return
+        }
 
         val targetBase = plugin.structurePlacer.activeBases.values.find { it.sheepEntityId == entity.uniqueId } ?: return
         val myTeam = plugin.teamManager.getPlayerTeam(player) ?: TeamColor.NEUTRAL
@@ -130,12 +138,15 @@ class GameListener(private val plugin: LandFight) : Listener {
         // 必须是自家的羊
         if (targetBase.ownerTeam == myTeam) {
             val currentCapital = plugin.teamManager.teamsCapitals[myTeam]
-            val isThisBaseCapital = currentCapital != null && plugin.stateManager.isSameBlockPos(currentCapital, targetBase.location)
+            val isThisBaseCapital = currentCapital != null && isSameBlockPos(currentCapital, targetBase.location)
 
             if (isThisBaseCapital) {
+                interactCooldown[player.uniqueId] = now
                 player.sendMessage("§e提示：这个据点已经是你们队伍的大本营，无需重复设置！")
                 return
             }
+
+            interactCooldown[player.uniqueId] = now
 
             val oldCapitalLoc = plugin.teamManager.teamsCapitals[myTeam]
             // 如果已有旧大本营，先把旧据点改回普通据点样式

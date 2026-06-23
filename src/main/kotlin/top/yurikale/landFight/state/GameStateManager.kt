@@ -70,7 +70,7 @@ class GameStateManager(private val plugin: LandFight) {
 
                 if (battleWorld != null) {
                     org.bukkit.Bukkit.broadcastMessage("游戏即将开始！")
-                    plugin.structurePlacer.spawnAllBases(battleWorld, 30) { baseLocations ->
+                    plugin.structurePlacer.spawnAllBases(battleWorld, 15) { baseLocations ->
                         plugin.mapManager.initGameMap()
                         org.bukkit.Bukkit.getScheduler().runTask(plugin, Runnable {
                             try {
