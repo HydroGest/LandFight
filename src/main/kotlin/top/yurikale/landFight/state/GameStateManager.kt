@@ -177,6 +177,17 @@ class GameStateManager(private val plugin: LandFight) {
                         player.removePotionEffect(effect.type)
                     }
 
+
+                    val advancementIterator = org.bukkit.Bukkit.getServer().advancementIterator()
+                    while (advancementIterator.hasNext()) {
+                        val advancement = advancementIterator.next()
+                        val progress = player.getAdvancementProgress(advancement)
+                        // 撤销该成就下所有已解锁的条件
+                        for (criteria in progress.awardedCriteria) {
+                            progress.revokeCriteria(criteria)
+                        }
+                    }
+
                     player.sendMessage("§a§l[系统] §f游戏已结束")
                 }
 
@@ -184,7 +195,6 @@ class GameStateManager(private val plugin: LandFight) {
                 plugin.teamManager.teamsCapitals.clear()
 
                 plugin.worldManager.resetBattleWorld()
-
 
                 plugin.teamManager.clearScoreboardTeams()
 
