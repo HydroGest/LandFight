@@ -297,17 +297,61 @@ class TransportManageMenuHolder(
             player.playSound(player.location, org.bukkit.Sound.ENTITY_VILLAGER_NO, 1.0f, 1.0f)
             return
         }
+
+        // 1. 确定操作者的队伍
+        val playerTeam = plugin.teamManager.getPlayerTeam(player)
+        val targetIdsStr = selectedBases.joinToString(", ") { "#$it" }
+
+        // 2. 执行网络加边逻辑
         selectedBases.forEach { plugin.structurePlacer.networkGraph.addConnection(base.id, it) }
-        player.sendMessage("§a【基建工程】 交通线铺设完毕！")
         player.playSound(player.location, org.bukkit.Sound.ENTITY_PLAYER_LEVELUP, 1.0f, 1.0f)
+
+        // 3. 【精准全队广播】
+        if (playerTeam != TeamColor.NEUTRAL) {
+            val broadcastMsg = "§a【基建快讯】 队友 §f${player.name} §a为据点 §e#${base.id} §a铺设了通往 §e$targetIdsStr §a的交通网络！"
+
+            org.bukkit.Bukkit.getOnlinePlayers().forEach { p ->
+                // 只发送给同一阵营的在线队友
+                if (plugin.teamManager.getPlayerTeam(p) == playerTeam) {
+                    p.sendMessage(broadcastMsg)
+                    p.playSound(p.location, org.bukkit.Sound.BLOCK_ANVIL_USE, 0.6f, 1.5f)
+                }
+            }
+        } else {
+            // 后备方案：如果没有队伍（比如管理员测试），仅提示个人
+            player.sendMessage("§a【基建工程】 交通线铺设完毕！")
+        }
+
         reopenMenu(player, ManageState.IDLE, setOf())
     }
 
     private fun executeRemove(player: Player) {
         if (selectedBases.isEmpty()) return
+
+        // 1. 确定操作者的队伍
+        val playerTeam = plugin.teamManager.getPlayerTeam(player)
+        val targetIdsStr = selectedBases.joinToString(", ") { "#$it" }
+
+        // 2. 执行网络删边逻辑
         selectedBases.forEach { plugin.structurePlacer.networkGraph.removeConnection(base.id, it) }
-        player.sendMessage("§e【战术指令】 已截断所选据点的物理连线！")
         player.playSound(player.location, org.bukkit.Sound.ENTITY_ZOMBIE_BREAK_WOODEN_DOOR, 1.0f, 1.0f)
+
+        // 3. 【精准全队战术预警】
+        if (playerTeam != TeamColor.NEUTRAL) {
+            val alertMsg = "§c【战术预警】 队友 §f${player.name} §c切断了据点 §e#${base.id} §c与 §e$targetIdsStr §c的物理连线！"
+
+            org.bukkit.Bukkit.getOnlinePlayers().forEach { p ->
+                // 只发送给同一阵营的在线队友
+                if (plugin.teamManager.getPlayerTeam(p) == playerTeam) {
+                    p.sendMessage(alertMsg)
+                    p.playSound(p.location, org.bukkit.Sound.ENTITY_BLAZE_DEATH, 0.6f, 1.2f)
+                }
+            }
+        } else {
+            // 后备方案
+            player.sendMessage("§e【战术指令】 已截断所选据点的物理连线！")
+        }
+
         reopenMenu(player, ManageState.IDLE, setOf())
     }
 

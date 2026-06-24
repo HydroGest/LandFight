@@ -3,6 +3,7 @@ package top.yurikale.landFight.ui
 import org.bukkit.Bukkit
 import org.bukkit.Material
 import org.bukkit.enchantments.Enchantment
+import org.bukkit.entity.Player
 import org.bukkit.inventory.ItemFlag
 import org.bukkit.inventory.ItemStack
 import top.yurikale.landFight.LandFight
@@ -26,6 +27,7 @@ class TransportTeleportMenuHolder(
         }
 
         // 渲染左侧地图
+        // 渲染左侧地图
         for (row in 0..5) {
             for (col in 0..5) {
                 val slot = row * 9 + col
@@ -43,41 +45,55 @@ class TransportTeleportMenuHolder(
                 val isSelf = targetBase.id == base.id
                 val isAlly = targetBase.ownerTeam == myTeam
                 val isConnectedNetwork = graph.isConnected(base.id, targetBase.id)
+                val isCapital = plugin.structurePlacer.isBaseCapital(targetBase.id)
 
                 val mat = when {
                     isSelf -> getGlass(targetBase.ownerTeam)
-                    plugin.structurePlacer.isBaseCapital(targetBase.id) -> getBanner(targetBase.ownerTeam)
+                    isCapital -> getBanner(targetBase.ownerTeam)
                     else -> getWool(targetBase.ownerTeam)
                 }
 
                 val item = ItemStack(mat)
                 val meta = item.itemMeta
-                meta?.setDisplayName("${targetBase.ownerTeam?.colorCode}据点 #${targetBase.id}")
 
-                // 细化且醒目的 Lore
+                // --- 1. 构建基础 Lore 容器 ---
                 val lore = mutableListOf<String>()
+                var titlePrefix = ""
+
+                if (isCapital) {
+                    lore.add("§6[⭐ 核心枢纽 / 首都据点]")
+                }
                 lore.add("§7位置坐标: §f[${targetBase.location.blockX}, ${targetBase.location.blockZ}]")
                 lore.add("§8§m-------------------------")
 
+                // 暂存点击事件，统一在最后一步绑定
+                var clickAction: ((Player) -> Unit)? = null
+
+                // --- 2. 根据状态赋予不同的文案和逻辑 ---
                 if (isSelf) {
+                    titlePrefix = "§e[📍 此处] "
                     lore.add("§c▶ 无法传送：你正身处此据点")
                 } else if (!isAlly) {
+                    titlePrefix = "§c[🔒 拒绝] "
                     lore.add("§c[🔒 权限拒绝] 非己方控制区")
                     lore.add("§7无法向中立或敌对据点折跃。")
                 } else if (!isConnectedNetwork) {
+                    titlePrefix = "§c[✖ 断网] "
                     lore.add("§c[⚠ 物理断网] 处于网络孤岛")
                     lore.add("§7你需要先在【交通线管理】中")
                     lore.add("§7铺设线路，将其接入据点网络。")
                 } else {
+                    titlePrefix = "§a[✔ 可传送] "
                     lore.add("§a[📡 网络畅通] 该据点已接入本站网络")
                     lore.add("§e▶ 点击立刻开始折跃向该据点")
                     lore.add("§8(启动需引导 3 秒，期间切勿走动)")
 
-                    // 仅连通的己方可用点拥有附魔光泽，极为显眼
+                    // 允许传送的赋予发光（除旗帜外均可正常闪烁）
                     meta?.addEnchant(Enchantment.POWER, 1, true)
                     meta?.addItemFlags(ItemFlag.HIDE_ENCHANTS)
 
-                    setButton(slot, item) { _, player ->
+                    // 实例化传送逻辑
+                    clickAction = { player ->
                         player.closeInventory()
                         player.sendMessage("§b【折跃启动】 目标锁定 #${targetBase.id}，3秒后传送，请勿走动...")
                         player.playSound(player.location, org.bukkit.Sound.BLOCK_PORTAL_TRIGGER, 0.5f, 1.5f)
@@ -93,13 +109,16 @@ class TransportTeleportMenuHolder(
                     }
                 }
 
+                // --- 3. 【核心修复】先将名字和 Lore 真正灌入 item 中 ---
+                meta?.setDisplayName("$titlePrefix${targetBase.ownerTeam?.colorCode}据点 #${targetBase.id}")
                 meta?.lore = lore
                 item.itemMeta = meta
 
-                if (!isSelf && isAlly && isConnectedNetwork) {
-                    // Button action has already been set in the block above
+                // --- 4. 最后统一渲染到 UI 槽位上 ---
+                if (clickAction != null) {
+                    setButton(slot, item) { _, player -> clickAction.invoke(player) }
                 } else {
-                    setButton(slot, item) // 不可点击的纯展示
+                    setButton(slot, item)
                 }
             }
         }
