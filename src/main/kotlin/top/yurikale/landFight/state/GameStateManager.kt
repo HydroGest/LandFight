@@ -124,13 +124,6 @@ class GameStateManager(private val plugin: LandFight) {
                                             1
                                         )
                                     )
-
-                                    player.inventory.addItem(
-                                        org.bukkit.inventory.ItemStack(
-                                            org.bukkit.Material.COMPASS,
-                                            1
-                                        )
-                                    )
                                     // ...
 
                                     plugin.mapManager.giveMapToPlayer(player)

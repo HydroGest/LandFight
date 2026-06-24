@@ -67,7 +67,10 @@ class BaseMenuHolder(val base: Base, private val plugin: LandFight) : ActionMenu
         transportItem.itemMeta = traMeta
 
         setButton(31, transportItem) { _, player ->
-            player.sendMessage("§e[交通枢纽] 模块开发中...")
+            player.playSound(player.location, org.bukkit.Sound.UI_BUTTON_CLICK, 1.0f, 1.2f)
+            val transportMenu = TransportMenuHolder(base, plugin)
+            transportMenu.setupMenu()
+            player.openInventory(transportMenu.inventory)
         }
 
         // 4. 工业菜单入口 (Slot 33)
