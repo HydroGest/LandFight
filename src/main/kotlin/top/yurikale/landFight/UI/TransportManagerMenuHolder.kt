@@ -8,6 +8,7 @@ import org.bukkit.inventory.ItemStack
 import top.yurikale.landFight.LandFight
 import top.yurikale.landFight.state.Base
 import top.yurikale.landFight.team.TeamColor
+import kotlin.math.abs
 
 enum class ManageState { IDLE, ADDING, REMOVING }
 
@@ -87,14 +88,14 @@ class TransportManageMenuHolder(
                             item = getBaseItem(targetBase, getGlass(targetBase.ownerTeam))
 
                             // 计算造价并向玩家完全透明展示
-                            val dCol = Math.abs(myCol - col)
-                            val dRow = Math.abs(myRow - row)
+                            val dCol = abs(myCol - col)
+                            val dRow = abs(myRow - row)
                             val distSq = dCol * dCol + dRow * dRow
-                            val nodeCost = distSq * 10
+                            val nodeCost = distSq * 5
 
                             lore.add("§e[建设评估]")
                             lore.add("§7距离参数: §fΔx=$dCol, Δy=$dRow")
-                            lore.add("§7造价公式: §f10 × ($dCol² + $dRow²)")
+                            lore.add("§7造价公式: §f5 × ($dCol² + $dRow²)")
                             lore.add("§7单条路线花费: §6$nodeCost 圆石")
                             lore.add("§8§m-------------------------")
 
@@ -189,7 +190,7 @@ class TransportManageMenuHolder(
                     "§8§m-------------------------",
                     "§6[计费说明]",
                     "§7费用与距离的平方成正比！",
-                    "§7公式: §f10 × (Δx² + Δy²) 圆石",
+                    "§7公式: §f5 × (Δx² + Δy²) 圆石",
                     "§7距离越远，开销成倍增加！"
                 )
                 addBtn.itemMeta = addMeta
@@ -285,7 +286,7 @@ class TransportManageMenuHolder(
             val b = plugin.structurePlacer.activeBases[id] ?: return@forEach
             val c2 = (b.location.blockX + 750) / 250
             val r2 = (b.location.blockZ + 750) / 250
-            totalCost += 10 * ((c1 - c2) * (c1 - c2) + (r1 - r2) * (r1 - r2))
+            totalCost += 5 * ((c1 - c2) * (c1 - c2) + (r1 - r2) * (r1 - r2))
         }
         return totalCost
     }

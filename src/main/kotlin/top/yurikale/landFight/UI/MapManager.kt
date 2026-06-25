@@ -20,7 +20,6 @@ class MapManager(private val plugin: LandFight) {
         gameMapView = Bukkit.createMap(world)
         gameMapView?.let { mapView ->
             mapView.scale = MapView.Scale.FARTHEST
-            // 【核心修改】：关闭原版追踪，防止出现原生指针和我们的自定义指针重叠
             mapView.isTrackingPosition = false
             mapView.isUnlimitedTracking = false
             mapView.centerX = 0
@@ -127,17 +126,12 @@ class BaseMapRenderer(private val plugin: LandFight) : MapRenderer(false) {
         val playerPx = worldToPixel(playerLoc.blockX)
         val playerPz = worldToPixel(playerLoc.blockZ)
 
-        // Minecraft 原版 MapCursor 坐标系范围是 Byte: -128 到 127
-        // 所以需要将我们的 0~127 Canvas 坐标映射成 Byte 坐标
         val cursorX = (playerPx * 2 - 128).coerceIn(-128, 127).toByte()
         val cursorZ = (playerPz * 2 - 128).coerceIn(-128, 127).toByte()
 
-        // 将玩家视角 (Yaw: -180~180) 转换为地图游标的 16 个方向指示 (0是正北，4是东，8是南，12是西)
-        val normYaw = (playerLoc.yaw % 360 + 360) % 360 // 将 Yaw 标准化为 0~360
-        val mapDegrees = (normYaw + 180) % 360 // 将 180(北) 偏移回 0
-        val cursorDirection = Math.round(mapDegrees / 22.5f).toInt() % 16
+        val normYaw = (playerLoc.yaw % 360 + 360) % 360 // 将 Yaw 限制在 0~360 之间
+        val cursorDirection = Math.round(normYaw / 22.5f).toInt() % 16
 
-        // 向地图中压入箭头游标
         cursors.addCursor(
             MapCursor(cursorX, cursorZ, cursorDirection.toByte(), MapCursor.Type.PLAYER, true)
         )
