@@ -83,8 +83,8 @@ class BaseMapRenderer(private val plugin: LandFight) : MapRenderer(false) {
                     val z2 = worldToPixel(targetBase.location.blockZ)
 
                     val lineColor = when (base.ownerTeam) {
-                        TeamColor.RED -> MapPalette.RED
-                        TeamColor.BLUE -> MapPalette.BLUE
+                        TeamColor.RED -> 12.toByte()
+                        TeamColor.BLUE -> 50.toByte()
                         else -> MapPalette.DARK_GRAY
                     }
                     drawLine(canvas, x1, z1, x2, z2, lineColor)
@@ -103,7 +103,7 @@ class BaseMapRenderer(private val plugin: LandFight) : MapRenderer(false) {
                 TeamColor.BLUE -> MapPalette.BLUE
                 else -> MapPalette.DARK_GRAY
             }
-            drawDot(canvas, pixelX, pixelZ, dotColor, radius = 1)
+            drawDot(canvas, pixelX, pixelZ, dotColor, radius = 2)
         }
 
         // 4. 绘制红队大本营
