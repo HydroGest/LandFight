@@ -51,6 +51,10 @@ class GameTask(private val plugin: LandFight) : BukkitRunnable() {
             return
         }
 
+        if (timeLeft % 10 == 0) {
+            plugin.industryManager.tickIndustry()
+        }
+
         // 每 5 秒判定一次据点连通性
         if (timeLeft % 5 == 0) {
             for (base in plugin.structurePlacer.activeBases.values) {

@@ -179,6 +179,7 @@ class StructurePlacer(private val plugin: LandFight) {
                     targetLocation.chunk.load(true)
 
                     cleanFoundation(world, randomX, highestY, randomZ)
+
                     structure.place(targetLocation, true, StructureRotation.NONE, Mirror.NONE, -1, 1.0f, random)
 
                     val structX = targetLocation.blockX
@@ -224,6 +225,8 @@ class StructurePlacer(private val plugin: LandFight) {
                     )
                     activeBases[newBase.id] = newBase
                     coreLocation.block.type = Material.GRAY_WOOL
+
+                    plugin.industryManager.scanEnvironment(newBase)
 
                     synchronized(generatedLocations) {
                         if (spawned < count) {

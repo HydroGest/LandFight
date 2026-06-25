@@ -8,6 +8,7 @@ import top.yurikale.landFight.world.StructurePlacer
 import top.yurikale.landFight.world.WorldManager
 import top.yurikale.landFight.state.GameStateManager
 import top.yurikale.landFight.state.NetworkGraph
+import top.yurikale.landFight.system.IndustryManager
 import top.yurikale.landFight.team.TeamManager
 import top.yurikale.landFight.ui.MapManager
 import top.yurikale.landFight.ui.SidebarManager
@@ -25,6 +26,8 @@ class LandFight : JavaPlugin() {
     lateinit var sidebarManager: SidebarManager
         private set
     lateinit var mapManager: MapManager
+        private set
+    lateinit var  industryManager: IndustryManager
         private set
 //    lateinit var networkGraph: NetworkGraph
 //      private set
@@ -48,6 +51,7 @@ class LandFight : JavaPlugin() {
         teamManager = TeamManager(this)
         sidebarManager = SidebarManager(this)
         mapManager = MapManager(this)
+        industryManager = IndustryManager(this)
 //        networkGraph = NetworkGraph()
 
         server.pluginManager.registerEvents(GameListener(this), this)

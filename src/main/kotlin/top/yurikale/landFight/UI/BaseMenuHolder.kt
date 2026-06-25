@@ -78,15 +78,15 @@ class BaseMenuHolder(val base: Base, private val plugin: LandFight) : ActionMenu
         val indMeta = industryItem.itemMeta
         indMeta?.setDisplayName("§a§l⚒ 工业资源产出")
         indMeta?.lore = listOf(
-            "§7木材产出权重: §e${String.format("%.2f", base.woodWeight)}",
-            "§7铁矿产出权重: §e${String.format("%.2f", base.ironWeight)}",
-            "",
             "§e▶ 点击进入扩建资源井、调配后勤产出速度"
         )
         industryItem.itemMeta = indMeta
 
         setButton(33, industryItem) { _, player ->
-            player.sendMessage("§e[工业产出] 模块开发中...")
+            player.playSound(player.location, org.bukkit.Sound.UI_BUTTON_CLICK, 1.0f, 1.2f)
+            val industryMenu = IndustryMenuHolder(base, plugin)
+            industryMenu.setupMenu()
+            player.openInventory(industryMenu.inventory)
         }
 
         // 5. 填充背景（防止乱拿物品）

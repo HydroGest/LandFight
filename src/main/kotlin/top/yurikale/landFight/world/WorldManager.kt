@@ -42,7 +42,7 @@ class WorldManager(private val plugin: LandFight) {
             plugin.logger.info("Battle world resetted.")
 
             val worldFolder = File(Bukkit.getWorldContainer(), gameWorldName)
-            if (!worldFolder.exists()) {
+            if (worldFolder.exists()) {
                 val success = worldFolder.deleteRecursively()
                 if (success) {
                     plugin.logger.info("Battle world folder is deleted.")
