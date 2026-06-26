@@ -74,7 +74,7 @@ class StructurePlacer(private val plugin: LandFight) {
     data class GridCell(val col: Int, val row: Int)
 
     fun spawnAllBases(world: World, count: Int = 15, onComplete: (List<Location>) -> Unit) {
-        plugin.logger.info("Started to async spawn all bases for ${world.name}, target count: $count.")
+        plugin.logger.info("Started to smoothly spawn all bases for ${world.name}, target count: $count.")
         activeBases.clear()
         allBaseStructureBlocks.clear()
         allBaseBounds.clear()
@@ -92,71 +92,43 @@ class StructurePlacer(private val plugin: LandFight) {
         val structure = structureManager.loadStructure(nbtFile)
         val random = Random()
 
-        // 世界范围 -750 到 750 (共1500)，划分为 6x6 的网格，每个 250x250
+        // 1. 初始化任务池
         val allCells = mutableListOf<GridCell>()
         for (c in 0 until 6) {
             for (r in 0 until 6) {
                 allCells.add(GridCell(c, r))
             }
         }
-
-        // 随机打乱，并只抽取用户需要的数量 (15个)
         allCells.shuffle(random)
-        // 这是一个“任务池”，里面装了 15 个被选中的 250x250 区域
         val targetCells = allCells.take(count).toMutableList()
 
         val generatedLocations = mutableListOf<Location>()
+
+        // 状态控制器
         var spawned = 0
-        var pendingTask = 0
-        val maxConcurrent = 8
+        var loadingChunks = 0
+        // 使用线程安全的队列，存放“区块已加载完毕，等待放置建筑”的坐标
+        val readyQueue = java.util.concurrent.ConcurrentLinkedQueue<Triple<GridCell, Int, Int>>()
 
-        var isSpawnFinish = false
-
-        fun checkAllDone() {
-            synchronized(generatedLocations) {
-                if (isSpawnFinish && pendingTask <= 0) {
-                    plugin.logger.info("All base initialized, total spawned: ${generatedLocations.size}.")
+        // 2. 核心调度器：每 2 ticks (0.1秒) 执行一次。彻底将运算压力分摊到时间轴上
+        object : org.bukkit.scheduler.BukkitRunnable() {
+            override fun run() {
+                // 【完成判定】
+                if (spawned >= count) {
+                    plugin.logger.info("All base initialized smoothly! Total spawned: ${generatedLocations.size}.")
                     destroyProgressBar()
                     onComplete(generatedLocations)
+                    this.cancel() // 任务完成，自我销毁
+                    return
                 }
-            }
-        }
 
-        fun trySpawnOne() {
-            var cellTask: GridCell? = null
+                // 【消费者】：如果队列里有准备好的地块，就进行重度方块放置
+                // 每次 tick 只 pop 出 1 个来生成，确保主线程毫无压力
+                val readyItem = readyQueue.poll()
+                if (readyItem != null) {
+                    val (cellTask, randomX, randomZ) = readyItem
 
-            synchronized(generatedLocations) {
-                if (isSpawnFinish) return
-                if (pendingTask >= maxConcurrent) return
-                if (targetCells.isEmpty()) return // 如果任务池空了，说明要么在重试中，要么即将完成
-
-                // 从任务池取出一个区域
-                cellTask = targetCells.removeAt(0)
-            }
-
-            // 如果没拿到任务就直接退出
-            if (cellTask == null) return
-
-            pendingTask++
-
-            // 计算该网格的左上角起点 (col 0~5, row 0~5)
-            val minX = -750 + cellTask!!.col * 250
-            val minZ = -750 + cellTask!!.row * 250
-
-            // 在该网格内随机取点
-            // 为了防止建筑（宽约15格）跨越出 250 的边界，将随机范围缩小 15 格
-            val randomX = minX + random.nextInt(250 - 15)
-            val randomZ = minZ + random.nextInt(250 - 15)
-
-            val chunkX = randomX shr 4
-            val chunkZ = randomZ shr 4
-
-            world.getChunkAtAsync(chunkX, chunkZ).thenAccept { chunk ->
-                try {
-                    synchronized(generatedLocations) {
-                        if (isSpawnFinish) return@thenAccept
-                    }
-
+                    // 在主线程安全地获取高度和方块类型
                     val highestBlock = world.getHighestBlockAt(randomX, randomZ)
                     val highestY = highestBlock.y
                     val material = highestBlock.type
@@ -167,108 +139,105 @@ class StructurePlacer(private val plugin: LandFight) {
 
                     if (isOnLeaves || isOnLogs || isOnBamboo) {
                         plugin.logger.info("Skipped spawn at X:$randomX Z:$randomZ due to invalid surface: $material")
-                        // 如果生成失败，把这个网格任务重新塞回池子里！
-                        // 确保下一次重试仍然是在这个指定的 250x250 区域内进行，直到该区域成功生成 1 个据点
-                        synchronized(generatedLocations) {
-                            targetCells.add(cellTask!!)
-                        }
-                        return@thenAccept
+                        targetCells.add(cellTask) // 失败，将网格任务塞回池子尾部重新派发
+                        return // 结束本次 tick，下个 tick 继续
                     }
 
-                    val targetLocation = Location(world, randomX.toDouble(), highestY.toDouble(), randomZ.toDouble())
-                    targetLocation.chunk.load(true)
+                    try {
+                        val targetLocation = Location(world, randomX.toDouble(), highestY.toDouble(), randomZ.toDouble())
 
-                    cleanFoundation(world, randomX, highestY, randomZ)
+                        // 重度的方块操作
+                        cleanFoundation(world, randomX, highestY, randomZ)
+                        buildFoundation(world, randomX, highestY, randomZ)
+                        structure.place(targetLocation, true, StructureRotation.NONE, Mirror.NONE, -1, 1.0f, random)
 
-                    structure.place(targetLocation, true, StructureRotation.NONE, Mirror.NONE, -1, 1.0f, random)
+                        val structX = targetLocation.blockX
+                        val structY = targetLocation.blockY + 1
+                        val structZ = targetLocation.blockZ
 
-                    val structX = targetLocation.blockX
-                    val structY = targetLocation.blockY + 1
-                    val structZ = targetLocation.blockZ
-                    allBaseBounds.add(
-                        BaseStructureBound(
-                            minX = structX, maxX = structX + 14,
-                            minY = structY, maxY = structY + 20,
-                            minZ = structZ, maxZ = structZ + 14
+                        allBaseBounds.add(
+                            BaseStructureBound(
+                                minX = structX, maxX = structX + 14,
+                                minY = structY, maxY = structY + 20,
+                                minZ = structZ, maxZ = structZ + 14
+                            )
                         )
-                    )
-                    for (x in structX..structX + 14) {
-                        for (y in structY..structY + 21) {
-                            for (z in structZ..structZ + 14) {
-                                if (world.getBlockAt(x, y, z).type != Material.AIR) {
-                                    allBaseStructureBlocks.add(blockPosKey(x, y, z))
+                        for (x in structX..structX + 14) {
+                            for (y in structY..structY + 21) {
+                                for (z in structZ..structZ + 14) {
+                                    if (world.getBlockAt(x, y, z).type != Material.AIR) {
+                                        allBaseStructureBlocks.add(blockPosKey(x, y, z))
+                                    }
                                 }
                             }
                         }
+
+                        val coreLocation = targetLocation.clone().add(6.0, 4.0, 6.0)
+                        val spawnLoc = coreLocation.clone().add(0.5, 1.0, 0.5)
+                        val sheep = world.spawn(spawnLoc, org.bukkit.entity.Sheep::class.java) { s ->
+                            s.setAI(false)
+                            s.color = org.bukkit.DyeColor.GRAY
+                            s.customName = "§7[中立据点]"
+                            s.isCustomNameVisible = true
+                            s.getAttribute(Attribute.MAX_HEALTH)?.baseValue = 50.0
+                            s.health = 50.0
+                        }
+
+                        val sheepLoc = spawnLoc.block.location
+                        listOf(Location(world, sheepLoc.x, sheepLoc.y + 1, sheepLoc.z)).forEach { it.block.type = Material.GRAY_STAINED_GLASS }
+
+                        // 绝对有序的 ID 赋予
+                        val newBase = Base(
+                            id = spawned,
+                            location = coreLocation,
+                            ownerTeam = TeamColor.NEUTRAL,
+                            sheepEntityId = sheep.uniqueId
+                        )
+                        activeBases[newBase.id] = newBase
+                        coreLocation.block.type = Material.GRAY_WOOL
+
+                        // 触发异步扫描
+                        plugin.industryManager.scanEnvironment(newBase)
+
+                        spawned++
+                        generatedLocations.add(coreLocation)
+                        updateProgressBar(spawned, count)
+                        plugin.logger.info("Success generated base at [${randomX}, ${highestY}, ${randomZ}] (ID: ${newBase.id})")
+                    } catch (e: Exception) {
+                        plugin.logger.warning("Failed spawn at X:$randomX Z:$randomZ, will retry. Error: ${e.message}")
+                        targetCells.add(cellTask)
                     }
 
-                    val coreLocation = targetLocation.clone().add(6.0, 4.0, 6.0)
-                    val spawnLoc = coreLocation.clone().add(0.5, 1.0, 0.5)
-                    val sheep = world.spawn(spawnLoc, org.bukkit.entity.Sheep::class.java) { s ->
-                        s.setAI(false)
-                        s.color = org.bukkit.DyeColor.GRAY
-                        s.customName = "§7[中立据点]"
-                        s.isCustomNameVisible = true
-                        s.getAttribute(Attribute.MAX_HEALTH)?.baseValue = 50.0
-                        s.health = 50.0
-                    }
+                } else {
+                    // 【生产者】：如果没有排队等待放置的任务，就去请求加载新区块
+                    // 维持最大并发加载数为 3，避免阻塞 IO
+                    if (targetCells.isNotEmpty() && loadingChunks < 3) {
+                        val cellTask = targetCells.removeAt(0)
+                        loadingChunks++
 
-                    val sheepLoc = spawnLoc.block.location
-                    val glassPositions = listOf(Location(world, sheepLoc.x, sheepLoc.y + 1, sheepLoc.z))
-                    glassPositions.forEach { it.block.type = Material.GRAY_STAINED_GLASS }
+                        val minX = -750 + cellTask.col * 250
+                        val minZ = -750 + cellTask.row * 250
+                        val randomX = minX + random.nextInt(250 - 15)
+                        val randomZ = minZ + random.nextInt(250 - 15)
+                        val chunkX = randomX shr 4
+                        val chunkZ = randomZ shr 4
 
-                    val newBase = Base(
-                        id = spawned,
-                        location = coreLocation,
-                        ownerTeam = TeamColor.NEUTRAL,
-                        sheepEntityId = sheep.uniqueId
-                    )
-                    activeBases[newBase.id] = newBase
-                    coreLocation.block.type = Material.GRAY_WOOL
-
-                    plugin.industryManager.scanEnvironment(newBase)
-
-                    synchronized(generatedLocations) {
-                        if (spawned < count) {
-                            spawned++
-                            generatedLocations.add(coreLocation)
-                            updateProgressBar(spawned, count)
-                            if (spawned >= count) {
-                                isSpawnFinish = true
-                            }
+                        // 异步向底层请求区块
+                        world.getChunkAtAsync(chunkX, chunkZ).thenAccept { _ ->
+                            // 加载完成后，将坐标扔进队列，等待主线程消费者获取
+                            readyQueue.offer(Triple(cellTask, randomX, randomZ))
+                            loadingChunks--
                         }
                     }
-                    plugin.logger.info("Success generated base at [${randomX}, ${highestY}, ${randomZ}] (Cell: ${cellTask!!.col}, ${cellTask!!.row})")
-                } catch (e: Exception) {
-                    plugin.logger.warning("Failed spawn at X:$randomX Z:$randomZ, will retry. Error: ${e.message}")
-                    // 【核心改动】：发生异常同样塞回任务池重试
-                    synchronized(generatedLocations) {
-                        targetCells.add(cellTask!!)
-                    }
-                } finally {
-                    synchronized(generatedLocations) {
-                        pendingTask--
-                    }
-                    synchronized(generatedLocations) {
-                        // 只要池子里还有任务没做完，就继续触发并发
-                        if (!isSpawnFinish && targetCells.isNotEmpty()) {
-                            trySpawnOne()
-                        }
-                    }
-                    checkAllDone()
                 }
             }
-        }
-
-        repeat(maxConcurrent) {
-            trySpawnOne()
-        }
+        }.runTaskTimer(plugin, 0L, 2L) // 2 Tick 的执行间隔，丝滑不掉帧
     }
 
     private fun cleanFoundation(world:World, startX:Int, startY:Int, startZ:Int) {
-        for (x in startX..startX + 14) {
-            for (y in startY..startY + 21) {
-                for (z in startZ..startZ + 14) {
+        for (x in startX - 1..startX + 15) {
+            for (y in startY + 1..startY + 21) {
+                for (z in startZ - 1..startZ + 15) {
                     world.getBlockAt(x, y, z).type = Material.AIR
                 }
             }
@@ -368,5 +337,28 @@ class StructurePlacer(private val plugin: LandFight) {
             }
         }
         return null
+    }
+
+    /**
+     * 向下平滑补充泥土地基，直到遇到实体方块或水
+     */
+    private fun buildFoundation(world: World, startX: Int, startY: Int, startZ: Int) {
+        for (x in startX..startX + 14) {
+            for (z in startZ..startZ + 14) {
+                var currentY = startY - 1
+
+                while (currentY > world.minHeight) {
+                    val block = world.getBlockAt(x, currentY, z)
+                    val type = block.type
+
+                    if (type == Material.WATER || type == Material.LAVA || type.isSolid) {
+                        break
+                    }
+
+                    block.type = Material.DIRT
+                    currentY--
+                }
+            }
+        }
     }
 }

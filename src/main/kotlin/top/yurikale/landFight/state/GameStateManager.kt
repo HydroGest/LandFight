@@ -1,10 +1,6 @@
 package top.yurikale.landFight.state
 
-import org.bukkit.Location
-import org.bukkit.Material
 import org.bukkit.attribute.Attribute
-import org.bukkit.inventory.ItemStack
-import org.bukkit.inventory.meta.CompassMeta
 import top.yurikale.landFight.LandFight
 import top.yurikale.landFight.team.TeamColor
 
@@ -19,6 +15,9 @@ class GameStateManager(private val plugin: LandFight) {
     // 默认状态为大厅
     var currentState: GameState = GameState.LOBBY
         private set
+
+    var isPvPEnabled: Boolean = false
+        internal set
 
     var bases: List<org.bukkit.Location>? = null
 
@@ -59,9 +58,11 @@ class GameStateManager(private val plugin: LandFight) {
                 // 先保存runnable实例，再启动任务（不接收返回的BukkitTask）
                 plugin.lobbyCountdownTask = runnable
                 runnable.runTaskTimer(plugin, 0L, 20L)
+                isPvPEnabled = false
             }
 
             GameState.IN_GAME -> {
+                isPvPEnabled = false
                 plugin.logger.info("Game state is IN_GAME, initializing battlefield...")
 
                 plugin.teamManager.assignTeam()
@@ -128,7 +129,18 @@ class GameStateManager(private val plugin: LandFight) {
 
                                     plugin.mapManager.giveMapToPlayer(player)
 
+                                    player.sendMessage("")
+                                    player.sendMessage("§8================ §e§l领地战争 (LandFight) §8================")
+                                    player.sendMessage("§7▶ §c核心目标：§f保护己方大本营，占领更多全图据点并消灭敌人！")
+                                    player.sendMessage("§7▶ §a占领机制：§f找到中立或敌方据点，§c直接攻击中心的羊§f即可夺取。")
+                                    player.sendMessage("§7▶ §b大本营转移：§f空手 §a右键 §f己方据点的羊，可将其设为新的复活点。")
+                                    player.sendMessage("§7▶ §6战略控制台：§f在自家据点内按下 §e[潜行 + F] §f打开据点菜单！")
+                                    player.sendMessage("§8=====================================================")
+                                    player.sendMessage("")
+                                    player.playSound(player.location, org.bukkit.Sound.ENTITY_PLAYER_LEVELUP, 1.0f, 1.0f)
+
                                 }
+                                isPvPEnabled = false
                                 plugin.currentGameTask = GameTask(plugin)
                                 plugin.currentGameTask?.runTaskTimer(plugin, 0L, 20L)
                             } catch (e: Exception) {
@@ -144,6 +156,7 @@ class GameStateManager(private val plugin: LandFight) {
 
             }
             GameState.RESET -> {
+                isPvPEnabled = false
                 plugin.logger.info("Game state is RESET, resetting battlefield...")
 
                 plugin.currentGameTask?.cancel()
@@ -203,4 +216,3 @@ class GameStateManager(private val plugin: LandFight) {
         }
     }
 }
-
