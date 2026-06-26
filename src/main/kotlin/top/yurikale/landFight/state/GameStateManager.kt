@@ -184,6 +184,11 @@ class GameStateManager(private val plugin: LandFight) {
                     player.sendMessage("§a§l[系统] §f游戏已结束")
                 }
 
+                plugin.structurePlacer.networkGraph.clearGraph()
+                plugin.structurePlacer.activeBases.clear()
+                plugin.structurePlacer.allBaseStructureBlocks.clear()
+                plugin.structurePlacer.allBaseBounds.clear()
+
                 plugin.teamManager.playerTeams.clear()
                 plugin.teamManager.teamsCapitals.clear()
 

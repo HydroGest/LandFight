@@ -21,5 +21,7 @@ data class Base(
     // 小数累加器 (材质 -> 积累的零碎产量)
     val resourceAccumulator: MutableMap<Material, Double> = mutableMapOf(),
     // 最终生成的可用库存 (材质 -> 整数数量)
-    val resourceStorage: MutableMap<Material, Int> = mutableMapOf()
+    val resourceStorage: MutableMap<Material, Int> = mutableMapOf(),
+    var isLogisticsEnabled: Boolean = false, // 是否开启自动回传
+    val resourceSourceMark: MutableMap<String, Int> = mutableMapOf<String, Int>()
 )

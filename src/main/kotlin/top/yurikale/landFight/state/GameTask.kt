@@ -19,8 +19,6 @@ class GameTask(private val plugin: LandFight) : BukkitRunnable() {
 
     private var gameCountdownBar: BossBar? = null
 
-//    private var tickCounter = 0L
-
     private fun getBaseIdAt(loc: Location): Int {
         return plugin.structurePlacer.activeBases.values.find {
             it.location.blockX == loc.blockX && it.location.blockY == loc.blockY && it.location.blockZ == loc.blockZ
@@ -34,7 +32,6 @@ class GameTask(private val plugin: LandFight) : BukkitRunnable() {
             BarColor.YELLOW,
             BarStyle.SEGMENTED_10
         )
-        // 给所有在线玩家加上
         Bukkit.getOnlinePlayers().forEach { gameCountdownBar?.addPlayer(it) }
     }
 
@@ -61,7 +58,6 @@ class GameTask(private val plugin: LandFight) : BukkitRunnable() {
                 if (base.ownerTeam == TeamColor.NEUTRAL) continue
 
                 val homeLoc = plugin.teamManager.teamsCapitals[base.ownerTeam]
-                // 这里假设你在 networkGraph 里有类似方法判断是否与大本营连通
                 val isConnected = homeLoc != null && plugin.structurePlacer.networkGraph.isConnected(base.id, getBaseIdAt(homeLoc))
 
                 if (!isConnected) {
@@ -72,11 +68,14 @@ class GameTask(private val plugin: LandFight) : BukkitRunnable() {
             }
         }
 
+        // ================ 【新增】每秒刷新所有打开工业菜单的玩家UI ================
+        // 作用：1. 让10秒进度条平滑滚动  2. 多玩家操作实时同步，防止显示不同步
+        refreshIndustryMenus()
+
         // 格式化时分秒
         val minute = timeLeft / 60
         val sec = timeLeft % 60
         val timeText = "距离游戏结束：${minute}分${sec.toString().padStart(2, '0')}秒"
-        // 更新BossBar标题与进度
         gameCountdownBar?.setTitle(timeText)
         gameCountdownBar?.progress = timeLeft.toDouble() / totalGameSec.toDouble()
 
@@ -89,7 +88,7 @@ class GameTask(private val plugin: LandFight) : BukkitRunnable() {
         val hasRedCapital = plugin.teamManager.teamsCapitals.containsKey(TeamColor.RED)
         val hasBlueCapital = plugin.teamManager.teamsCapitals.containsKey(TeamColor.BLUE)
 
-        // 队伍全员离线1分钟判负逻辑不变
+        // 队伍全员离线1分钟判负逻辑
         if (hasRedCapital && redAlive == 0) {
             redEmptyTick++
             if (redEmptyTick == 10 || redEmptyTick == 30 || redEmptyTick == 50) {
@@ -134,7 +133,6 @@ class GameTask(private val plugin: LandFight) : BukkitRunnable() {
                 val team = currentBase.ownerTeam ?: TeamColor.NEUTRAL
                 val teamPrefix = "${team.colorCode}[${team.displayName}据点] "
 
-                // 发送 Actionbar 提示
                 player.spigot().sendMessage(
                     net.md_5.bungee.api.ChatMessageType.ACTION_BAR,
                     net.md_5.bungee.api.chat.TextComponent("${teamPrefix}§f已进入据点。§e左键攻击羊占领，右键羊设为大本营 §b| §6[潜行+F] 打开据点菜单")
@@ -146,25 +144,37 @@ class GameTask(private val plugin: LandFight) : BukkitRunnable() {
             val sheep = plugin.server.getEntity(base.sheepEntityId ?: return@forEach) as? org.bukkit.entity.Sheep ?: return@forEach
             val maxHp = sheep.getAttribute(org.bukkit.attribute.Attribute.MAX_HEALTH)?.value ?: 50.0
 
-            // 只有没满血时才处理
             if (sheep.health < maxHp) {
                 val shouldHeal = when (base.level) {
-                    1 -> timeLeft % 3 == 0 // 3秒回1滴
-                    2 -> timeLeft % 2 == 0 // 2秒回1滴
-                    3 -> timeLeft % 1 == 0 // 1秒回1滴
+                    1 -> timeLeft % 3 == 0
+                    2 -> timeLeft % 2 == 0
+                    3 -> timeLeft % 1 == 0
                     else -> false
                 }
 
                 if (shouldHeal) {
-                    // 安全加血，防止溢出最大生命值
                     sheep.health = (sheep.health + 1.0).coerceAtMost(maxHp)
-                    // 刷新羊头顶血条名字
                     plugin.structurePlacer.refreshBaseVisual(base, plugin.structurePlacer.isBaseCapital(base.id))
                 }
             }
         }
 
         timeLeft--
+    }
+
+    /**
+     * 每秒刷新所有打开工业菜单的玩家的UI
+     * 1. 让10秒进度条平滑滚动（每秒更新一次位置）
+     * 2. 多玩家操作实时同步（A玩家提取物资，B玩家界面立刻刷新）
+     */
+    private fun refreshIndustryMenus() {
+        for (player in Bukkit.getOnlinePlayers()) {
+            val topInv = player.openInventory.topInventory
+            val holder = topInv.holder
+            if (holder is top.yurikale.landFight.ui.IndustryMenuHolder) {
+                holder.setupMenu()
+            }
+        }
     }
 
     private fun checkWinCondition(timeout: Boolean) {
@@ -214,7 +224,6 @@ class GameTask(private val plugin: LandFight) : BukkitRunnable() {
 
     private fun endGame() {
         this.cancel()
-        // 销毁倒计时BossBar
         gameCountdownBar?.removeAll()
         gameCountdownBar = null
         plugin.sidebarManager.removeSidebar()
