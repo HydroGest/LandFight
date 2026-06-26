@@ -12,7 +12,6 @@ class GameStateManager(private val plugin: LandFight) {
                 loc1.blockZ == loc2.blockZ
     }
 
-    // 默认状态为大厅
     var currentState: GameState = GameState.LOBBY
         private set
 
@@ -28,7 +27,6 @@ class GameStateManager(private val plugin: LandFight) {
         when (newState) {
             GameState.LOBBY -> {
                 plugin.logger.info("Game state is LOBBY, waiting for player to join...")
-                // 销毁残留大厅倒计时
                 plugin.lobbyCountdownTask?.cancel()
                 plugin.lobbyCountdownTask = null
 
@@ -36,17 +34,14 @@ class GameStateManager(private val plugin: LandFight) {
                 val runnable = object : org.bukkit.scheduler.BukkitRunnable() {
                     override fun run() {
                         val onlineCount = org.bukkit.Bukkit.getOnlinePlayers().size
-                        // 人数不足，重置倒计时
                         if (onlineCount < plugin.minStartPlayer) {
                             waitTime = plugin.lobbyWaitSecond
                             return
                         }
                         waitTime--
-                        // 每10秒广播一次倒计时
                         if (waitTime > 0 && waitTime % 10 == 0) {
                             org.bukkit.Bukkit.broadcastMessage("§e【大厅提示】§a 当前在线§e ${onlineCount}§a人，§e${waitTime}§a 秒后自动开战！")
                         }
-                        // 倒计时结束自动开局
                         if (waitTime <= 0) {
                             this.cancel()
                             plugin.lobbyCountdownTask = null
@@ -55,7 +50,6 @@ class GameStateManager(private val plugin: LandFight) {
                         }
                     }
                 }
-                // 先保存runnable实例，再启动任务（不接收返回的BukkitTask）
                 plugin.lobbyCountdownTask = runnable
                 runnable.runTaskTimer(plugin, 0L, 20L)
                 isPvPEnabled = false
@@ -98,12 +92,15 @@ class GameStateManager(private val plugin: LandFight) {
                                         for (player in org.bukkit.Bukkit.getOnlinePlayers()) {
                                             player.sendMessage("战场已就绪！正在空降中...")
                                             val spawnLoc = org.bukkit.Location(battleWorld, 0.0, 150.0, 0.0)
-                                            // 获取刚才存入的队伍大本营坐标
                                             val targetLoc = plugin.teamManager.teamsCapitals[plugin.teamManager.getPlayerTeam(player)]
                                                 ?.clone()?.add(0.0, 3.0, 0.0) ?: spawnLoc
                                             player.teleport(targetLoc)
                                             player.gameMode = org.bukkit.GameMode.SURVIVAL
-                                            // distribute basic tools pack
+
+                                            // 【新增】游戏开始设置 2 倍血量
+                                            player.getAttribute(Attribute.MAX_HEALTH)?.baseValue = 40.0
+                                            player.health = 40.0
+
                                             player.inventory.addItem(org.bukkit.inventory.ItemStack(org.bukkit.Material.BREAD, 16))
                                             player.inventory.addItem(org.bukkit.inventory.ItemStack(org.bukkit.Material.OAK_BOAT, 1))
                                             plugin.mapManager.giveMapToPlayer(player)
@@ -159,7 +156,10 @@ class GameStateManager(private val plugin: LandFight) {
 
                     player.inventory.clear()
                     player.foodLevel = 20
-                    player.health = (player.getAttribute(Attribute.MAX_HEALTH)?.value ?: 20) as Double
+
+                    // 【新增】回到大厅恢复原版血量
+                    player.getAttribute(Attribute.MAX_HEALTH)?.baseValue = 20.0
+                    player.health = 20.0
 
                     player.setDisplayName(player.name)
                     player.setPlayerListName(player.name)
@@ -168,12 +168,10 @@ class GameStateManager(private val plugin: LandFight) {
                         player.removePotionEffect(effect.type)
                     }
 
-
                     val advancementIterator = org.bukkit.Bukkit.getServer().advancementIterator()
                     while (advancementIterator.hasNext()) {
                         val advancement = advancementIterator.next()
                         val progress = player.getAdvancementProgress(advancement)
-                        // 撤销该成就下所有已解锁的条件
                         for (criteria in progress.awardedCriteria) {
                             progress.revokeCriteria(criteria)
                         }
@@ -194,7 +192,6 @@ class GameStateManager(private val plugin: LandFight) {
 
                 plugin.teamManager.clearScoreboardTeams()
 
-                // 清理战场地图
                 plugin.mapManager.clearMap()
                 switchState(GameState.LOBBY)
             }

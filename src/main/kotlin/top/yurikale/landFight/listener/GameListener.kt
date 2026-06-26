@@ -27,8 +27,8 @@ import org.bukkit.event.player.PlayerJoinEvent
 import org.bukkit.event.player.PlayerRespawnEvent
 import org.bukkit.event.player.PlayerSwapHandItemsEvent
 import org.bukkit.event.player.PlayerTeleportEvent
+import org.bukkit.inventory.ItemStack
 import org.bukkit.scheduler.BukkitRunnable
-import org.bukkit.util.Vector
 import top.yurikale.landFight.LandFight
 import top.yurikale.landFight.state.GameState
 import top.yurikale.landFight.team.TeamColor
@@ -52,6 +52,8 @@ class GameListener(private val plugin: LandFight) : Listener {
     private val RELEASE_DELAY_TICKS = 8      // 8tick无右键触发判定为松开（约0.4秒）
 
     private val interactCooldown = mutableMapOf<UUID, Long>()
+
+    private val breadKeepMap = mutableMapOf<UUID, Int>()
 
     // ================================================
     //  工具函数
@@ -271,25 +273,7 @@ class GameListener(private val plugin: LandFight) : Listener {
     }
 
     // ================================================
-    //  守卫同队免伤保护
-    // ================================================
-    @EventHandler
-    fun onGuardFriendlyFire(event: EntityDamageByEntityEvent) {
-        if (plugin.stateManager.currentState != GameState.IN_GAME) return
-        val victim = event.entity
-        val damager = event.damager
-
-        if (damager is Player && victim is org.bukkit.entity.Mob && victim !is Sheep) {
-            val guardData = plugin.guardManager.getGuardData(victim.uniqueId) ?: return
-            val damagerTeam = plugin.teamManager.getPlayerTeam(damager)
-            if (damagerTeam == guardData.team) {
-                event.isCancelled = true
-            }
-        }
-    }
-
-    // ================================================
-    //  守卫纯净仇恨控制
+    //  守卫纯净仇恨控制（支持攻击敌方守卫）
     // ================================================
     @EventHandler
     fun onGuardTarget(event: org.bukkit.event.entity.EntityTargetEvent) {
@@ -302,10 +286,45 @@ class GameListener(private val plugin: LandFight) : Listener {
         if (target is Player) {
             val targetTeam = plugin.teamManager.getPlayerTeam(target)
             if (targetTeam == guardData.team || targetTeam == TeamColor.NEUTRAL) {
-                event.isCancelled = true // 取消对同队和中立玩家的仇恨
+                event.isCancelled = true
+            }
+        } else if (target is org.bukkit.entity.Mob) {
+            val targetGuardData = plugin.guardManager.getGuardData(target.uniqueId)
+            // 如果不是守卫，或者是同队守卫，取消仇恨
+            if (targetGuardData == null || targetGuardData.team == guardData.team) {
+                event.isCancelled = true
             }
         } else if (target != null) {
-            event.isCancelled = true // 取消对所有非玩家生物的仇恨
+            event.isCancelled = true
+        }
+    }
+
+    // ================================================
+    //  守卫同队免伤保护
+    // ================================================
+    @EventHandler
+    fun onGuardFriendlyFire(event: EntityDamageByEntityEvent) {
+        if (plugin.stateManager.currentState != GameState.IN_GAME) return
+        val victim = event.entity
+        val damager = event.damager
+
+        if (victim is org.bukkit.entity.Mob && victim !is Sheep) {
+            val victimData = plugin.guardManager.getGuardData(victim.uniqueId) ?: return
+
+            // 如果是玩家攻击
+            if (damager is Player) {
+                val damagerTeam = plugin.teamManager.getPlayerTeam(damager)
+                if (damagerTeam == victimData.team) {
+                    event.isCancelled = true
+                }
+            }
+            // 如果是守卫攻击守卫
+            else if (damager is org.bukkit.entity.Mob) {
+                val damagerData = plugin.guardManager.getGuardData(damager.uniqueId)
+                if (damagerData != null && damagerData.team == victimData.team) {
+                    event.isCancelled = true
+                }
+            }
         }
     }
 
@@ -357,7 +376,19 @@ class GameListener(private val plugin: LandFight) : Listener {
             event.respawnLocation = capitalLoc.clone().add(0.0, 3.0, 0.0)
             player.sendMessage("§a你在队伍大本营复活了！")
             plugin.mapManager.giveMapToPlayer(player)
+
+            // 归还保留的面包
+            val breadCount = breadKeepMap.remove(player.uniqueId) ?: 0
+            if (breadCount > 0) {
+                Bukkit.getScheduler().runTask(plugin, Runnable {
+                    player.inventory.addItem(ItemStack(Material.BREAD, breadCount))
+                })
+            }
         }
+        Bukkit.getScheduler().runTask(plugin, Runnable {
+            player.getAttribute(Attribute.MAX_HEALTH)?.baseValue = 40.0
+            player.health = 40.0
+        })
     }
 
     // ================================================
@@ -370,54 +401,47 @@ class GameListener(private val plugin: LandFight) : Listener {
         when (plugin.stateManager.currentState) {
             GameState.LOBBY -> {
                 player.gameMode = GameMode.ADVENTURE
-
                 val lobbyWorld = Bukkit.getWorlds()[0]
                 player.teleport(lobbyWorld.spawnLocation)
-
                 player.inventory.clear()
                 player.foodLevel = 20
-                player.health = player.getAttribute(Attribute.MAX_HEALTH)?.value ?: 20.0
+
+                player.getAttribute(Attribute.MAX_HEALTH)?.baseValue = 20.0
+                player.health = 20.0
 
                 for (effect in player.activePotionEffects) {
                     player.removePotionEffect(effect.type)
                 }
             }
-
             GameState.IN_GAME -> {
                 val myTeam = plugin.teamManager.getPlayerTeam(player)
                 if (myTeam != TeamColor.NEUTRAL) {
-                    // 已有队伍，不做额外处理
+                    // 已有队伍
                 } else {
                     val redCount = plugin.teamManager.getAliveCount(TeamColor.RED) ?: 0
                     val blueCount = plugin.teamManager.getAliveCount(TeamColor.BLUE) ?: 0
-
                     val targetTeam = when {
                         redCount < blueCount -> TeamColor.RED
                         blueCount < redCount -> TeamColor.BLUE
                         else -> if (Math.random() > 0.5) TeamColor.RED else TeamColor.BLUE
                     }
-
                     plugin.teamManager.playerTeams[player.uniqueId] = targetTeam
                     player.sendMessage("§a你中途加入战场，已分配至 ${targetTeam.colorCode}${targetTeam.displayName}§a！")
                     plugin.teamManager.setupPlayerTeam(player, targetTeam)
-
-                    val spawnLoc = org.bukkit.Location(
-                        Bukkit.getWorld(plugin.worldManager.gameWorldName),
-                        0.0, 150.0, 0.0
-                    )
-                    val teamSpawn = plugin.teamManager.teamsCapitals[targetTeam]
-                        ?.clone()?.add(0.0, 3.0, 0.0) ?: spawnLoc
+                    val spawnLoc = org.bukkit.Location(Bukkit.getWorld(plugin.worldManager.gameWorldName), 0.0, 150.0, 0.0)
+                    val teamSpawn = plugin.teamManager.teamsCapitals[targetTeam]?.clone()?.add(0.0, 3.0, 0.0) ?: spawnLoc
                     player.teleport(teamSpawn)
                     player.gameMode = GameMode.SURVIVAL
 
+                    player.getAttribute(Attribute.MAX_HEALTH)?.baseValue = 40.0
+                    player.health = 40.0
+
                     player.inventory.clear()
-                    player.inventory.addItem(org.bukkit.inventory.ItemStack(Material.BREAD, 16))
-                    player.inventory.addItem(org.bukkit.inventory.ItemStack(Material.OAK_BOAT, 1))
-                    player.inventory.addItem(org.bukkit.inventory.ItemStack(Material.COMPASS, 1))
+                    player.inventory.addItem(ItemStack(Material.BREAD, 16))
+                    player.inventory.addItem(ItemStack(Material.OAK_BOAT, 1))
                     plugin.mapManager.giveMapToPlayer(player)
                 }
             }
-
             GameState.RESET -> { }
         }
     }
@@ -481,6 +505,22 @@ class GameListener(private val plugin: LandFight) : Listener {
         tnt.fuseTicks = 80
         player.playSound(player.location, org.bukkit.Sound.ENTITY_TNT_PRIMED, 1f, 1f)
     }
+
+    @EventHandler
+    fun onGuardDeath(event: org.bukkit.event.entity.EntityDeathEvent) {
+        if (plugin.stateManager.currentState != GameState.IN_GAME) return
+        val entity = event.entity
+
+        // 如果是守卫，交给 GuardManager 处理
+        if (entity is org.bukkit.entity.Mob && entity !is Sheep) {
+            if (plugin.guardManager.getGuardData(entity.uniqueId) != null) {
+                // 清空掉落物防止刷装备 (虽然掉率设了0，双保险)
+                event.drops.clear()
+                plugin.guardManager.handleGuardDeath(entity)
+            }
+        }
+    }
+
 
     // ================================================
     //  TNT 系统：右键空气蓄力投掷
@@ -616,6 +656,28 @@ class GameListener(private val plugin: LandFight) : Listener {
         }
         event.blockList().removeAll(protectBlocks)
     }
+
+    @EventHandler
+    fun onPlayerDeath(event: PlayerDeathEvent) {
+        if (plugin.stateManager.currentState != GameState.IN_GAME) return
+        val player = event.entity
+
+        var breadCount = 0
+        val iterator = event.drops.iterator()
+        while (iterator.hasNext()) {
+            val item = iterator.next()
+            if (item.type == Material.BREAD) {
+                breadCount += item.amount
+                iterator.remove()
+            }
+        }
+        if (breadCount > 0) {
+            breadKeepMap[player.uniqueId] = breadCount
+        }
+
+        forceCancelCharge(player)
+    }
+
 
     // ================================================
     //  插件关闭时清理所有蓄力资源

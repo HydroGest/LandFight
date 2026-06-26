@@ -24,5 +24,6 @@ data class Base(
     val resourceStorage: MutableMap<Material, Int> = mutableMapOf(),
     var isLogisticsEnabled: Boolean = false, // 是否开启自动回传
     val resourceSourceMark: MutableMap<String, Int> = mutableMapOf<String, Int>(),
-    var lastGuardBuyTime: Long = 0L // 上次购买守卫的时间，用于计算价格
+    var lastGuardBuyTime: Long = 0L, // 上次购买守卫的时间，用于计算价格
+    var isAlerted: Boolean = false
 )

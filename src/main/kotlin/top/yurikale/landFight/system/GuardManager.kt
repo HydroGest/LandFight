@@ -20,9 +20,9 @@ data class GuardData(
     val uniqueId: UUID,
     val baseId: Int,
     val team: TeamColor,
-    var mode: GuardMode = GuardMode.FOLLOW,
+    var mode: GuardMode = GuardMode.DEFEND,
     var followTarget: UUID? = null,
-    var isTransitioning: Boolean = false // 是否在等待3秒延时
+    var isTransitioning: Boolean = false
 )
 
 class GuardManager(private val plugin: LandFight) {
@@ -30,13 +30,12 @@ class GuardManager(private val plugin: LandFight) {
     val guards = mutableMapOf<UUID, GuardData>()
 
     companion object {
-        private const val COOLDOWN_MS = 10 * 60 * 1000L // 10分钟
+        private const val COOLDOWN_MS = 10 * 60 * 1000L
         private const val PEAK_PRICE = 300.0
         private const val BASE_PRICE = 20
     }
 
     init {
-        // 独立循环：每 10 tick (0.5秒) 更新一次守卫行为
         object : org.bukkit.scheduler.BukkitRunnable() {
             override fun run() {
                 tickGuards()
@@ -44,9 +43,6 @@ class GuardManager(private val plugin: LandFight) {
         }.runTaskTimer(plugin, 0L, 10L)
     }
 
-    /**
-     * 计算当前招募价格（指数回落算法）
-     */
     fun calculateCost(base: Base): Int {
         val now = System.currentTimeMillis()
         val elapsed = now - base.lastGuardBuyTime
@@ -61,22 +57,20 @@ class GuardManager(private val plugin: LandFight) {
         val loc = player.location
         val team = base.ownerTeam ?: return
 
-        // 生成卫道士
         val vindicator = loc.world.spawn(loc, Vindicator::class.java)
         vindicator.isCustomNameVisible = true
-        vindicator.customName = "${team.colorCode}[守卫] 卫道士 #${base.id}"
         vindicator.isPatrolLeader = false
+        vindicator.setRemoveWhenFarAway(false)
         equipGuard(vindicator, team, Material.IRON_AXE)
 
-        // 生成掠夺者
         val pillager = loc.world.spawn(loc, Pillager::class.java)
         pillager.isCustomNameVisible = true
-        pillager.customName = "${team.colorCode}[守卫] 掠夺者 #${base.id}"
         pillager.isPatrolLeader = false
+        pillager.setRemoveWhenFarAway(false)
         equipGuard(pillager, team, Material.CROSSBOW)
 
-        guards[vindicator.uniqueId] = GuardData(vindicator.uniqueId, base.id, team, GuardMode.FOLLOW, player.uniqueId)
-        guards[pillager.uniqueId] = GuardData(pillager.uniqueId, base.id, team, GuardMode.FOLLOW, player.uniqueId)
+        guards[vindicator.uniqueId] = GuardData(vindicator.uniqueId, base.id, team, GuardMode.DEFEND)
+        guards[pillager.uniqueId] = GuardData(pillager.uniqueId, base.id, team, GuardMode.DEFEND)
 
         base.lastGuardBuyTime = System.currentTimeMillis()
     }
@@ -111,54 +105,107 @@ class GuardManager(private val plugin: LandFight) {
         val iterator = guards.entries.iterator()
         while (iterator.hasNext()) {
             val (entityId, data) = iterator.next()
-            val entity = Bukkit.getEntity(entityId) as? Mob ?: run {
-                iterator.remove()
-                continue
-            }
-            if (entity.isDead) {
+            val entity = Bukkit.getEntity(entityId) as? Mob
+
+            // 如果是 null，说明区块卸载了，跳过但不删除数据！
+            if (entity == null) continue
+
+            // 只有在确认实体死亡或被移除时才清理数据
+            if (entity.isDead || !entity.isValid) {
                 iterator.remove()
                 continue
             }
 
-            // 1. 检查目标有效性
+            // 1. 主动检查并清除错误仇恨（防止底层 AI 卡顿锁定同队）
             val target = entity.target
-            if (target is Player) {
-                val targetTeam = plugin.teamManager.getPlayerTeam(target)
-                if (targetTeam == data.team || targetTeam == TeamColor.NEUTRAL) {
-                    entity.target = null // 清除无效仇恨
+            if (target != null) {
+                var shouldClearTarget = false
+                if (target is Player) {
+                    val targetTeam = plugin.teamManager.getPlayerTeam(target)
+                    if (targetTeam == data.team || targetTeam == TeamColor.NEUTRAL) {
+                        shouldClearTarget = true
+                    }
+                } else if (target is Mob) {
+                    val targetGuardData = guards[target.uniqueId]
+                    if (targetGuardData == null || targetGuardData.team == data.team) {
+                        shouldClearTarget = true
+                    }
                 } else {
-                    return // 正在追击敌对玩家，不执行巡逻
+                    shouldClearTarget = true
                 }
-            } else if (target != null && target !is Player) {
-                entity.target = null // 清除非玩家仇恨
+
+                if (shouldClearTarget) {
+                    entity.target = null
+                }
             }
 
-            // 2. 无仇恨时的移动逻辑
-            if (data.isTransitioning) continue // 等待延时中
+            // 2. 警报逻辑
+            val base = plugin.structurePlacer.activeBases[data.baseId]
+            val isNearBase = base != null && entity.location.distanceSquared(base.location) < 400
+            val hasValidTarget = target != null && entity.target != null
 
-            if (data.mode == GuardMode.FOLLOW) {
-                val targetPlayer = data.followTarget?.let { Bukkit.getPlayer(it) }
-                if (targetPlayer != null && targetPlayer.world == entity.world) {
-                    // 【修复】距离平方 9.0 代表 3m，大于 3m 才移动
-                    if (entity.location.distanceSquared(targetPlayer.location) > 9.0) {
-                        // 【修复】速度降至 1.0
-                        entity.pathfinder.moveTo(targetPlayer.location, 1.0)
+            if (hasValidTarget && data.mode == GuardMode.DEFEND && isNearBase && base != null && !base.isAlerted) {
+                base.isAlerted = true
+                val targetName = if (target is Player) target.name else (target as Mob).customName ?: "敌方守卫"
+                broadcastToTeam(data.team, "§c【警报】据点 #${data.baseId} 遭到 $targetName 攻击，守卫正在迎击！")
+            } else if (!hasValidTarget && base != null && base.isAlerted) {
+                base.isAlerted = false
+            }
+
+            // 3. 更新名称显示
+            updateGuardName(entity, data)
+
+            // 4. 无仇恨时的移动逻辑
+            if (!hasValidTarget && !data.isTransitioning) {
+                if (data.mode == GuardMode.FOLLOW) {
+                    val targetPlayer = data.followTarget?.let { Bukkit.getPlayer(it) }
+                    if (targetPlayer != null && targetPlayer.world == entity.world) {
+                        if (entity.location.distanceSquared(targetPlayer.location) > 9.0) {
+                            entity.pathfinder.moveTo(targetPlayer.location, 1.0)
+                        }
                     }
-                }
-            } else if (data.mode == GuardMode.DEFEND) {
-                val base = plugin.structurePlacer.activeBases[data.baseId] ?: continue
-                if (entity.location.distanceSquared(base.location) > 9.0) {
-                    entity.pathfinder.moveTo(base.location, 1.0)
+                } else if (data.mode == GuardMode.DEFEND) {
+                    if (base != null && entity.location.distanceSquared(base.location) > 9.0) {
+                        entity.pathfinder.moveTo(base.location, 1.0)
+                    }
                 }
             }
         }
     }
 
+    private fun updateGuardName(entity: Mob, data: GuardData) {
+        val typeName = if (entity is Vindicator) "卫道士" else "掠夺者"
+        val modeStr = when (data.mode) {
+            GuardMode.FOLLOW -> {
+                val name = data.followTarget?.let { Bukkit.getPlayer(it)?.name ?: "未知" }
+                "跟随[$name]"
+            }
+            GuardMode.DEFEND -> "守卫据点"
+        }
+        entity.customName = "${data.team.colorCode}[守卫] $typeName #${data.baseId} §7| §f$modeStr"
+    }
+
+    private fun broadcastToTeam(team: TeamColor, msg: String) {
+        for (player in Bukkit.getOnlinePlayers()) {
+            if (plugin.teamManager.getPlayerTeam(player) == team) {
+                player.sendMessage(msg)
+            }
+        }
+    }
+
+    fun handleGuardDeath(entity: Mob) {
+        val data = guards.remove(entity.uniqueId) ?: return
+        val typeName = if (entity is Vindicator) "卫道士" else "掠夺者"
+        val loc = entity.location
+        val coord = "${loc.blockX}, ${loc.blockY}, ${loc.blockZ}"
+        broadcastToTeam(data.team, "§c【战损】己方据点 #${data.baseId} 的 $typeName §c在 ($coord) 阵亡了！")
+    }
+
     fun setDefendMode(guardData: GuardData) {
         guardData.mode = GuardMode.DEFEND
         guardData.isTransitioning = true
+        guardData.followTarget = null
 
-        // 3秒延时
         Bukkit.getScheduler().runTaskLater(plugin, Runnable {
             guardData.isTransitioning = false
         }, 60L)
@@ -170,7 +217,6 @@ class GuardManager(private val plugin: LandFight) {
         guardData.isTransitioning = false
     }
 
-    // 获取守卫数据
     fun getGuardData(uniqueId: UUID): GuardData? {
         return guards[uniqueId]
     }
