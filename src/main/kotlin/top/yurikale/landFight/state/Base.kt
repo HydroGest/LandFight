@@ -23,5 +23,6 @@ data class Base(
     // 最终生成的可用库存 (材质 -> 整数数量)
     val resourceStorage: MutableMap<Material, Int> = mutableMapOf(),
     var isLogisticsEnabled: Boolean = false, // 是否开启自动回传
-    val resourceSourceMark: MutableMap<String, Int> = mutableMapOf<String, Int>()
+    val resourceSourceMark: MutableMap<String, Int> = mutableMapOf<String, Int>(),
+    var lastGuardBuyTime: Long = 0L // 上次购买守卫的时间，用于计算价格
 )

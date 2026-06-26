@@ -48,7 +48,7 @@ class GameListener(private val plugin: LandFight) : Listener {
 
     private val playerChargeMap = mutableMapOf<UUID, TntChargeData>()
     private val MAX_TNT_SPEED = 4.0          // 最大初速度
-    private val FULL_CHARGE_MS = 1500L       // 1.5秒蓄满
+    private val FULL_CHARGE_MS = 4000L       // 5秒蓄满
     private val RELEASE_DELAY_TICKS = 8      // 8tick无右键触发判定为松开（约0.4秒）
 
     private val interactCooldown = mutableMapOf<UUID, Long>()
@@ -200,10 +200,34 @@ class GameListener(private val plugin: LandFight) : Listener {
         if (plugin.stateManager.currentState != GameState.IN_GAME) return
 
         val entity = event.rightClicked
-        if (entity !is Sheep) return
 
         val player = event.player
         if (player.gameMode != GameMode.SURVIVAL) return
+
+        if (entity is org.bukkit.entity.Mob) {
+            val guardData = plugin.guardManager.getGuardData(entity.uniqueId)
+            if (guardData != null) {
+                event.isCancelled = true
+                val now = System.currentTimeMillis()
+                if (now - (interactCooldown[player.uniqueId] ?: 0L) < 1000L) return
+
+                val myTeam = plugin.teamManager.getPlayerTeam(player)
+                if (myTeam != guardData.team) {
+                    interactCooldown[player.uniqueId] = now
+                    player.sendMessage("§c这是敌方守卫，无法下达指令！")
+                    return
+                }
+
+                interactCooldown[player.uniqueId] = now
+                val menuHolder = top.yurikale.landFight.ui.GuardMenuHolder(guardData, plugin)
+                menuHolder.setupMenu()
+                player.openInventory(menuHolder.inventory)
+                player.playSound(player.location, org.bukkit.Sound.BLOCK_CHEST_OPEN, 1.0f, 1.1f)
+                return
+            }
+        }
+
+        if (entity !is Sheep) return
 
         val now = System.currentTimeMillis()
         if (now - (interactCooldown[player.uniqueId] ?: 0L) < 1000L) return
@@ -243,6 +267,45 @@ class GameListener(private val plugin: LandFight) : Listener {
                 "§e【战略转移】§f${player.name} 为 " +
                         "${myTeam.colorCode}${myTeam.displayName}§e 设立全新大本营！"
             )
+        }
+    }
+
+    // ================================================
+    //  守卫同队免伤保护
+    // ================================================
+    @EventHandler
+    fun onGuardFriendlyFire(event: EntityDamageByEntityEvent) {
+        if (plugin.stateManager.currentState != GameState.IN_GAME) return
+        val victim = event.entity
+        val damager = event.damager
+
+        if (damager is Player && victim is org.bukkit.entity.Mob && victim !is Sheep) {
+            val guardData = plugin.guardManager.getGuardData(victim.uniqueId) ?: return
+            val damagerTeam = plugin.teamManager.getPlayerTeam(damager)
+            if (damagerTeam == guardData.team) {
+                event.isCancelled = true
+            }
+        }
+    }
+
+    // ================================================
+    //  守卫纯净仇恨控制
+    // ================================================
+    @EventHandler
+    fun onGuardTarget(event: org.bukkit.event.entity.EntityTargetEvent) {
+        val entity = event.entity
+        if (entity !is org.bukkit.entity.Mob) return
+
+        val guardData = plugin.guardManager.getGuardData(entity.uniqueId) ?: return
+        val target = event.target
+
+        if (target is Player) {
+            val targetTeam = plugin.teamManager.getPlayerTeam(target)
+            if (targetTeam == guardData.team || targetTeam == TeamColor.NEUTRAL) {
+                event.isCancelled = true // 取消对同队和中立玩家的仇恨
+            }
+        } else if (target != null) {
+            event.isCancelled = true // 取消对所有非玩家生物的仇恨
         }
     }
 

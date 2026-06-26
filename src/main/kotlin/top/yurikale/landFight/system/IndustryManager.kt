@@ -9,11 +9,9 @@ import kotlin.math.log2
 
 class IndustryManager(private val plugin: LandFight) {
 
-    // 上一周期开始时间戳（用于UI进度条）
     var lastCycleStartTime: Long = System.currentTimeMillis()
         private set
 
-    // 配置：不同据点等级对应的每 10 秒"总方块操作数"
     private fun getOutputCap(level: Int): Int = when (level) {
         1 -> 10
         2 -> 20
@@ -21,15 +19,12 @@ class IndustryManager(private val plugin: LandFight) {
         else -> 0
     }
 
-    /**
-     * 扫描据点周围环境，建立权重模型
-     */
     fun scanEnvironment(base: Base) {
         Bukkit.getScheduler().runTask(plugin, Runnable {
             val loc = base.location
             val world = loc.world ?: return@Runnable
 
-            val radius = 30
+            val radius = 15
             val heightDown = 30
             val heightUp = 20
 
@@ -113,11 +108,7 @@ class IndustryManager(private val plugin: LandFight) {
         })
     }
 
-    /**
-     * 工业产出心跳（每 10 秒调用一次）
-     */
     fun tickIndustry() {
-        // 记录本周期开始时间，供UI进度条使用
         lastCycleStartTime = System.currentTimeMillis()
 
         val activeBases = plugin.structurePlacer.activeBases.values
@@ -135,7 +126,9 @@ class IndustryManager(private val plugin: LandFight) {
 
                 val generatedItems = floor(currentAccumulated).toInt()
                 if (generatedItems > 0) {
-                    base.resourceStorage[mat] = base.resourceStorage.getOrDefault(mat, 0) + generatedItems
+                    // 【修复】加入 128 上限截断
+                    val currentStorage = base.resourceStorage.getOrDefault(mat, 0)
+                    base.resourceStorage[mat] = (currentStorage + generatedItems).coerceAtMost(128)
                 }
 
                 base.resourceAccumulator[mat] = currentAccumulated - generatedItems
@@ -155,17 +148,21 @@ class IndustryManager(private val plugin: LandFight) {
                         if (count > 0) {
                             val finalAmount = floor(count * 0.9).toInt()
                             if (finalAmount > 0) {
-                                // 统一来源标记格式：source_据点ID_材质枚举名
                                 val sourceKey = "source_${base.id}_${mat.name}"
                                 capitalBase.resourceSourceMark[sourceKey] =
                                     capitalBase.resourceSourceMark.getOrDefault(sourceKey, 0) + finalAmount
-                                capitalBase.resourceStorage[mat] =
-                                    capitalBase.resourceStorage.getOrDefault(mat, 0) + finalAmount
+
+                                // 【修复】大本营接收时也限制 128 上限
+                                val currentCapStorage = capitalBase.resourceStorage.getOrDefault(mat, 0)
+                                capitalBase.resourceStorage[mat] = (currentCapStorage + finalAmount).coerceAtMost(128)
                             }
                         }
                     }
                     base.resourceStorage.clear()
                     base.resourceAccumulator.clear()
+                } else {
+                    // 如果断网，后台强行关闭自动物流
+                    base.isLogisticsEnabled = false
                 }
             }
 

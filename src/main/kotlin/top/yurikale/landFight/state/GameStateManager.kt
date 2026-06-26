@@ -73,81 +73,66 @@ class GameStateManager(private val plugin: LandFight) {
                     org.bukkit.Bukkit.broadcastMessage("游戏即将开始！")
                     plugin.structurePlacer.spawnAllBases(battleWorld, 15) { baseLocations ->
                         plugin.mapManager.initGameMap()
-                        org.bukkit.Bukkit.getScheduler().runTask(plugin, Runnable {
+                        org.bukkit.Bukkit.getScheduler().runTaskLater(plugin, Runnable {
                             try {
                                 bases = baseLocations
                                 plugin.logger.info("Battle world spawned!")
-
                                 val shuffledBases = baseLocations.shuffled()
                                 val redBaseSpawn = shuffledBases[0]
                                 val blueBaseSpawn = shuffledBases[1]
-
                                 val redBase = plugin.structurePlacer.activeBases.values.find { isSameBlockPos(it.location, redBaseSpawn) }
                                 val blueBase = plugin.structurePlacer.activeBases.values.find { isSameBlockPos(it.location, blueBaseSpawn) }
-
-                                if (redBase != null && blueBase != null) {
-                                    redBase.ownerTeam = TeamColor.RED
-                                    blueBase.ownerTeam = TeamColor.BLUE
-
-                                    plugin.teamManager.teamsCapitals[TeamColor.RED] = redBase.location
-                                    plugin.teamManager.teamsCapitals[TeamColor.BLUE] = blueBase.location
-
-                                    // 刷新大本营专属视觉（羊、名字、玻璃羊毛）
-                                    plugin.structurePlacer.refreshBaseVisual(redBase, isCapital = true)
-                                    plugin.structurePlacer.refreshBaseVisual(blueBase, isCapital = true)
-                                }
-
                                 plugin.logger.info("Base ready! (3/3)")
+                                if (redBase != null && blueBase != null) {
+                                    org.bukkit.Bukkit.getScheduler().runTask(plugin, Runnable {
+                                        battleWorld.getChunkAt(redBaseSpawn)
+                                        battleWorld.getChunkAt(blueBaseSpawn)
 
-                                for (player in org.bukkit.Bukkit.getOnlinePlayers()) {
-                                    player.sendMessage("战场已就绪！正在空降中...")
+                                        redBase.ownerTeam = TeamColor.RED
+                                        blueBase.ownerTeam = TeamColor.BLUE
+                                        plugin.teamManager.teamsCapitals[TeamColor.RED] = redBase.location
+                                        plugin.teamManager.teamsCapitals[TeamColor.BLUE] = blueBase.location
+                                        plugin.structurePlacer.refreshBaseVisual(redBase, isCapital = true)
+                                        plugin.structurePlacer.refreshBaseVisual(blueBase, isCapital = true)
 
-                                    val spawnLoc = org.bukkit.Location(battleWorld, 0.0, 150.0, 0.0)
-                                    player.teleport(
-                                        plugin.teamManager.teamsCapitals[plugin.teamManager.getPlayerTeam(
-                                            player
-                                        )]?.clone()?.add(0.0, 3.0, 0.0) ?: spawnLoc
-                                    )
+                                        for (player in org.bukkit.Bukkit.getOnlinePlayers()) {
+                                            player.sendMessage("战场已就绪！正在空降中...")
+                                            val spawnLoc = org.bukkit.Location(battleWorld, 0.0, 150.0, 0.0)
+                                            // 获取刚才存入的队伍大本营坐标
+                                            val targetLoc = plugin.teamManager.teamsCapitals[plugin.teamManager.getPlayerTeam(player)]
+                                                ?.clone()?.add(0.0, 3.0, 0.0) ?: spawnLoc
+                                            player.teleport(targetLoc)
+                                            player.gameMode = org.bukkit.GameMode.SURVIVAL
+                                            // distribute basic tools pack
+                                            player.inventory.addItem(org.bukkit.inventory.ItemStack(org.bukkit.Material.BREAD, 16))
+                                            player.inventory.addItem(org.bukkit.inventory.ItemStack(org.bukkit.Material.OAK_BOAT, 1))
+                                            plugin.mapManager.giveMapToPlayer(player)
+                                            player.sendMessage("")
+                                            player.sendMessage("")
+                                            player.sendMessage("§8================ §e§l领地战争 (LandFight) §8================")
+                                            player.sendMessage("§7▶ §c核心目标：§f保护己方大本营，占领更多全图据点并消灭敌人！")
+                                            player.sendMessage("§7▶ §a占领机制：§f找到中立或敌方据点，§c直接攻击中心的羊§f即可夺取。")
+                                            player.sendMessage("§7▶ §b大本营转移：§f空手 §a右键 §f己方据点的羊，可将其设为新的复活点。")
+                                            player.sendMessage("§7▶ §6战略控制台：§f在自家据点内按下 §e[潜行 + F] §f打开据点菜单！")
+                                            player.sendMessage("§8=====================================================")
+                                            player.sendMessage("")
+                                            player.playSound(player.location, org.bukkit.Sound.ENTITY_PLAYER_LEVELUP, 1.0f, 1.0f)
+                                        }
+                                        isPvPEnabled = true
+                                        plugin.currentGameTask = GameTask(plugin)
+                                        plugin.currentGameTask?.runTaskTimer(plugin, 0L, 20L)
+                                    })
 
-                                    player.gameMode = org.bukkit.GameMode.SURVIVAL
 
-                                    // distribute basic tools pack
-                                    player.inventory.addItem(
-                                        org.bukkit.inventory.ItemStack(
-                                            org.bukkit.Material.BREAD,
-                                            16
-                                        )
-                                    )
-
-                                    player.inventory.addItem(
-                                        org.bukkit.inventory.ItemStack(
-                                            org.bukkit.Material.OAK_BOAT,
-                                            1
-                                        )
-                                    )
-                                    // ...
-
-                                    plugin.mapManager.giveMapToPlayer(player)
-
-                                    player.sendMessage("")
-                                    player.sendMessage("§8================ §e§l领地战争 (LandFight) §8================")
-                                    player.sendMessage("§7▶ §c核心目标：§f保护己方大本营，占领更多全图据点并消灭敌人！")
-                                    player.sendMessage("§7▶ §a占领机制：§f找到中立或敌方据点，§c直接攻击中心的羊§f即可夺取。")
-                                    player.sendMessage("§7▶ §b大本营转移：§f空手 §a右键 §f己方据点的羊，可将其设为新的复活点。")
-                                    player.sendMessage("§7▶ §6战略控制台：§f在自家据点内按下 §e[潜行 + F] §f打开据点菜单！")
-                                    player.sendMessage("§8=====================================================")
-                                    player.sendMessage("")
-                                    player.playSound(player.location, org.bukkit.Sound.ENTITY_PLAYER_LEVELUP, 1.0f, 1.0f)
-
+                                } else {
+                                    plugin.logger.severe { "未能找到红蓝大本营对象！" }
+                                    switchState(GameState.LOBBY)
                                 }
-                                isPvPEnabled = false
-                                plugin.currentGameTask = GameTask(plugin)
-                                plugin.currentGameTask?.runTaskTimer(plugin, 0L, 20L)
                             } catch (e: Exception) {
                                 plugin.logger.severe { "分配大本营时发生崩溃！" }
                                 e.printStackTrace()
                             }
-                        })
+                        }, 50L)
                     }
                 } else {
                     plugin.logger.severe("Could not create battle world!")

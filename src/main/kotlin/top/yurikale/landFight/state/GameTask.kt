@@ -173,6 +173,8 @@ class GameTask(private val plugin: LandFight) : BukkitRunnable() {
             val holder = topInv.holder
             if (holder is top.yurikale.landFight.ui.IndustryMenuHolder) {
                 holder.setupMenu()
+            } else if (holder is top.yurikale.landFight.ui.GuardMenuHolder) {
+                holder.setupMenu()
             }
         }
     }

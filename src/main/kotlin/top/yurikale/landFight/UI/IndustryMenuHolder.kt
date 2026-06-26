@@ -5,27 +5,23 @@ import org.bukkit.entity.Player
 import org.bukkit.inventory.ItemStack
 import top.yurikale.landFight.LandFight
 import top.yurikale.landFight.state.Base
+import top.yurikale.landFight.team.TeamColor
 import kotlin.math.floor
 
 class IndustryMenuHolder(val base: Base, private val plugin: LandFight) : ActionMenu(54, "§0⚒ 据点工业系统") {
-
     fun setupMenu() {
         this.inventory.clear()
-
         // ================= 背景与装饰 =================
         val bgDark = ItemStack(Material.BLACK_STAINED_GLASS_PANE).apply {
             val m = itemMeta; m?.setDisplayName(" "); itemMeta = m
         }
         fillBackground(bgDark)
-
         // ================= 第二排：10秒周期进度条 (Slot 9-17) =================
         renderProgressBar()
-
         // ================= 顶部：地质扫描报告 (Slot 0-8) =================
         val scanRadar = ItemStack(Material.COMPASS)
         val radarMeta = scanRadar.itemMeta
         radarMeta?.setDisplayName("§b§l🌐 地质勘测报告")
-
         val radarLore = mutableListOf(
             "§7当前环境已探明以下资源分布：",
             "§8§m-------------------------",
@@ -35,7 +31,6 @@ class IndustryMenuHolder(val base: Base, private val plugin: LandFight) : Action
             "§7通过 §elog2(x+2)§7 对数算法计算得出的。",
             "§8§m-------------------------"
         )
-
         if (!base.isScanned || base.resourceWeights.isEmpty()) {
             radarLore.add("§c未扫描或该地区极度贫瘠，无法产出。")
         } else {
@@ -49,18 +44,26 @@ class IndustryMenuHolder(val base: Base, private val plugin: LandFight) : Action
         radarMeta?.lore = radarLore
         scanRadar.itemMeta = radarMeta
         setButton(4, scanRadar)
-
         // ================= 中部：工业存储库 =================
         val storageSlots = listOf(
             19, 20, 21, 22, 23, 24, 25,
             28, 29, 30, 31, 32, 33, 34,
             37, 38, 39, 40, 41, 42, 43
         )
-
         var slotPointer = 0
         val isCapital = plugin.structurePlacer.isBaseCapital(base.id)
+        // 【修复】强行校验物流连通性，断网自动关闭物流模式
+        if (!isCapital && base.isLogisticsEnabled) {
+            val owner = base.ownerTeam
+            val capitalLoc = if (owner != null && owner != TeamColor.NEUTRAL) plugin.teamManager.teamsCapitals[owner] else null
+            val capitalBase = capitalLoc?.let { loc ->
+                plugin.structurePlacer.activeBases.values.find { plugin.stateManager.isSameBlockPos(it.location, loc) }
+            }
+            if (capitalBase == null || !plugin.structurePlacer.networkGraph.isConnected(base.id, capitalBase.id)) {
+                base.isLogisticsEnabled = false
+            }
+        }
         val autoLogisticsOn = base.isLogisticsEnabled
-
         // 普通据点开启物流：不展示库存
         if (!isCapital && autoLogisticsOn) {
             val emptyStorage = ItemStack(Material.MINECART)
@@ -80,54 +83,45 @@ class IndustryMenuHolder(val base: Base, private val plugin: LandFight) : Action
         } else {
             base.resourceStorage.filter { it.value > 0 }.forEach { (mat, count) ->
                 if (slotPointer >= storageSlots.size) return@forEach
-
                 val item = ItemStack(mat)
                 val meta = item.itemMeta
                 meta?.setDisplayName("§a§l${getMaterialName(mat)}")
                 val loreLines = mutableListOf(
-                    "§7当前库存合计: §f$count 个",
+                    "§7当前库存合计: §f$count §7/ 128 个",
                     "§7产出进度(累加器): §e${String.format("%.1f%%", (base.resourceAccumulator[mat] ?: 0.0) * 100)}",
                     "§8§m-------------------------"
                 )
-
                 when {
                     isCapital -> {
-                        // 【修复】正确计算自产与外来数量
                         val sourceLines = mutableListOf<String>()
                         var externalTotal = 0
                         val targetSuffix = "_${mat.name}"
-
                         base.resourceSourceMark.forEach { (key, num) ->
                             if (key.startsWith("source_") && key.endsWith(targetSuffix)) {
                                 val parts = key.split("_")
                                 val sourceBaseId = parts.getOrNull(1) ?: return@forEach
-                                // 排除自身，只统计外来据点
                                 if (sourceBaseId != base.id.toString()) {
                                     sourceLines.add("§7- 据点#$sourceBaseId 输送: §f$num")
                                     externalTotal += num
                                 }
                             }
                         }
-
-                        // 自产 = 总库存 - 外来据点输送总数
                         val selfProduced = (count - externalTotal).coerceAtLeast(0)
                         val totalVerified = selfProduced + externalTotal
-
                         loreLines.add("§d物资来源明细：")
                         loreLines.add("§7- 本据点自产: §f$selfProduced")
                         if (sourceLines.isNotEmpty()) {
                             loreLines.addAll(sourceLines)
                         }
                         loreLines.add("§8§m-------------------------")
-                        loreLines.add("§d来源总和校验: §f$totalVerified / 仓库库存 $count")
-                        loreLines.add("§e▶ 点击提取当前所有库存")
-
+                        loreLines.add("§d来源总和校验: §f$totalVerified §7(提取以此为准)")
+                        loreLines.add("§e▶ 点击提取 §a64 §e个 (不足则全取)") // 【修复】提示限制64个
                         meta?.lore = loreLines
                         item.itemMeta = meta
                         setButton(storageSlots[slotPointer], item) { _, player -> extractItem(player, mat) }
                     }
                     !autoLogisticsOn -> {
-                        loreLines.add("§e▶ 物流未开启，点击直接提取该类物资")
+                        loreLines.add("§e▶ 点击提取 §a64 §e个 (不足则全取)") // 【修复】提示限制64个
                         meta?.lore = loreLines
                         item.itemMeta = meta
                         setButton(storageSlots[slotPointer], item) { _, player -> extractItem(player, mat) }
@@ -136,7 +130,6 @@ class IndustryMenuHolder(val base: Base, private val plugin: LandFight) : Action
                 slotPointer++
             }
         }
-
         // ================= 底部：操作台 (Slot 45-53) =================
         val coreInfo = ItemStack(Material.BLAST_FURNACE)
         val coreMeta = coreInfo.itemMeta
@@ -151,12 +144,12 @@ class IndustryMenuHolder(val base: Base, private val plugin: LandFight) : Action
         )
         coreInfo.itemMeta = coreMeta
         setButton(45, coreInfo)
-
         if (isCapital) {
             val extractAllBtn = ItemStack(Material.HOPPER)
             val exMeta = extractAllBtn.itemMeta
             exMeta?.setDisplayName("§6§l📦 提取总库物资 (发配至背包)")
-            exMeta?.lore = listOf("§7将大本营仓储内的所有物资提取到您的背包中")
+            // 【修复】提示限制每种64个
+            exMeta?.lore = listOf("§7将大本营仓储内的物资提取到您的背包中", "§7(§e每种物资最多提取 64 个§7)")
             extractAllBtn.itemMeta = exMeta
             setButton(49, extractAllBtn) { _, player -> extractAll(player) }
         } else {
@@ -187,14 +180,16 @@ class IndustryMenuHolder(val base: Base, private val plugin: LandFight) : Action
                 } else {
                     val willOpen = !base.isLogisticsEnabled
                     if (willOpen) {
-                        sendToCapital(player)
+                        // 【修复】只有连通且成功发车(或无库存但连通)才开启
+                        val success = sendToCapital(player)
+                        base.isLogisticsEnabled = success
+                    } else {
+                        base.isLogisticsEnabled = false
                     }
-                    base.isLogisticsEnabled = willOpen
                     setupMenu()
                 }
             }
         }
-
         val backBtn = ItemStack(Material.ARROW)
         val backMeta = backBtn.itemMeta
         backMeta?.setDisplayName("§c⬅ 返回战略主控制台")
@@ -206,27 +201,17 @@ class IndustryMenuHolder(val base: Base, private val plugin: LandFight) : Action
             player.openInventory(menu.inventory)
         }
     }
-
-    /**
-     * 渲染第二排 10 秒周期进度条
-     * 绿色 = 已完成进度，蓝色 = 剩余进度
-     */
     private fun renderProgressBar() {
-        val cycleMillis = 10000L // 10秒周期
+        val cycleMillis = 10000L
         val elapsed = System.currentTimeMillis() - plugin.industryManager.lastCycleStartTime
         val progress = ((elapsed % cycleMillis).toDouble() / cycleMillis).coerceIn(0.0, 1.0)
-
-        // 9 个槽位，计算已填充数量
         val filledCount = floor(progress * 9).toInt().coerceIn(0, 9)
-
         val greenPane = ItemStack(Material.GREEN_STAINED_GLASS_PANE).apply {
             val m = itemMeta; m?.setDisplayName("§a§l工业流水线运行中..."); itemMeta = m
         }
         val bluePane = ItemStack(Material.BLUE_STAINED_GLASS_PANE).apply {
             val m = itemMeta; m?.setDisplayName("§9§l下一周期待产出"); itemMeta = m
         }
-
-        // 中间槽位显示进度百分比
         val progressText = ItemStack(Material.CYAN_STAINED_GLASS_PANE).apply {
             val m = itemMeta
             m?.setDisplayName("§b⏱ 工业周期进度")
@@ -238,36 +223,31 @@ class IndustryMenuHolder(val base: Base, private val plugin: LandFight) : Action
             )
             itemMeta = m
         }
-
         for (i in 9..17) {
             val relativeIndex = i - 9
             when {
-                i == 13 -> setButton(i, progressText) // 中间显示详细进度
+                i == 13 -> setButton(i, progressText)
                 relativeIndex < filledCount -> setButton(i, greenPane)
                 else -> setButton(i, bluePane)
             }
         }
     }
-
-    /** 手动发车送物资到大本营 */
-    private fun sendToCapital(player: Player) {
-        val owner = base.ownerTeam ?: return
-        val capitalLoc = plugin.teamManager.teamsCapitals[owner] ?: return
-
+    /** 手动发车送物资到大本营，返回是否成功连通(用于判断是否可开启自动物流) */
+    private fun sendToCapital(player: Player): Boolean {
+        val owner = base.ownerTeam ?: return false
+        val capitalLoc = plugin.teamManager.teamsCapitals[owner] ?: return false
         val capitalBase = plugin.structurePlacer.activeBases.values.find {
             plugin.stateManager.isSameBlockPos(it.location, capitalLoc)
         } ?: run {
             player.sendMessage("§c大本营据点数据异常！")
-            return
+            return false
         }
-
         val isConnected = plugin.structurePlacer.networkGraph.isConnected(base.id, capitalBase.id)
         if (!isConnected) {
             player.sendMessage("§c§l[物流受阻] §f据点与大本营交通线断开，无法发车！")
             player.playSound(player.location, org.bukkit.Sound.ENTITY_VILLAGER_NO, 1.0f, 1.0f)
-            return
+            return false
         }
-
         var hasTransferred = false
         val storageCopy = base.resourceStorage.toMap()
         storageCopy.forEach { (mat, count) ->
@@ -276,18 +256,17 @@ class IndustryMenuHolder(val base: Base, private val plugin: LandFight) : Action
             val finalAmount = count - loss
             if (finalAmount <= 0) return@forEach
 
-            // 统一来源标记格式
             val sourceKey = "source_${base.id}_${mat.name}"
             capitalBase.resourceSourceMark[sourceKey] =
                 capitalBase.resourceSourceMark.getOrDefault(sourceKey, 0) + finalAmount
-            capitalBase.resourceStorage[mat] =
-                capitalBase.resourceStorage.getOrDefault(mat, 0) + finalAmount
+
+            val currentCapStorage = capitalBase.resourceStorage.getOrDefault(mat, 0)
+            capitalBase.resourceStorage[mat] = (currentCapStorage + finalAmount).coerceAtMost(128)
+
             hasTransferred = true
         }
-
         base.resourceStorage.clear()
         base.resourceAccumulator.clear()
-
         if (hasTransferred) {
             player.sendMessage("§a§l[物流成功] §f物资送达大本营，扣除10%运损，本地库存清空！")
             player.playSound(player.location, org.bukkit.Sound.ENTITY_MINECART_RIDING, 1.0f, 1.0f)
@@ -296,34 +275,67 @@ class IndustryMenuHolder(val base: Base, private val plugin: LandFight) : Action
             player.sendMessage("§c当前据点无库存可发车！")
             player.playSound(player.location, org.bukkit.Sound.ENTITY_VILLAGER_NO, 1.0f, 1.0f)
         }
+        return true // 只要连通了就算成功
     }
-
+    private fun getVerifiedAmount(mat: Material): Int {
+        val targetSuffix = "_${mat.name}"
+        var externalTotal = 0
+        base.resourceSourceMark.forEach { (key, num) ->
+            if (key.startsWith("source_") && key.endsWith(targetSuffix)) {
+                val parts = key.split("_")
+                val sourceBaseId = parts.getOrNull(1) ?: return@forEach
+                if (sourceBaseId != base.id.toString()) {
+                    externalTotal += num
+                }
+            }
+        }
+        val storageCount = base.resourceStorage[mat] ?: 0
+        val selfProduced = (storageCount - externalTotal).coerceAtLeast(0)
+        return selfProduced + externalTotal
+    }
+    private fun clearSourceMarks(mat: Material) {
+        val targetSuffix = "_${mat.name}"
+        val keysToRemove = base.resourceSourceMark.keys.filter {
+            it.startsWith("source_") && it.endsWith(targetSuffix)
+        }
+        keysToRemove.forEach { base.resourceSourceMark.remove(it) }
+    }
     /** 提取单种物资 */
     private fun extractItem(player: Player, mat: Material) {
-        val count = base.resourceStorage[mat] ?: 0
-        if (count <= 0) return
-
-        givePlayerItem(player, mat, count)
-        base.resourceStorage[mat] = 0
+        val isCapital = plugin.structurePlacer.isBaseCapital(base.id)
+        val amount = if (isCapital) getVerifiedAmount(mat) else (base.resourceStorage[mat] ?: 0)
+        if (amount <= 0) return
+        // 【修复】最多只提取 64 个
+        val amountToTake = minOf(64, amount)
+        givePlayerItem(player, mat, amountToTake)
+        val newCount = (base.resourceStorage[mat] ?: 0) - amountToTake
+        base.resourceStorage[mat] = newCount.coerceAtLeast(0)
+        // 如果该物资被取空，清除来源标记；如果有剩余，保留标记让自产自然扣减
+        if (newCount <= 0 && isCapital) {
+            clearSourceMarks(mat)
+        }
         player.playSound(player.location, org.bukkit.Sound.ENTITY_ITEM_PICKUP, 1.0f, 1.5f)
         setupMenu()
     }
-
     /** 大本营一键提取全部 */
     private fun extractAll(player: Player) {
+        val isCapital = plugin.structurePlacer.isBaseCapital(base.id)
         var hasExtracted = false
-        val iterator = base.resourceStorage.entries.iterator()
-        while (iterator.hasNext()) {
-            val entry = iterator.next()
-            val mat = entry.key
-            val count = entry.value
-            if (count > 0) {
-                givePlayerItem(player, mat, count)
-                entry.setValue(0)
+        val materials = base.resourceStorage.keys.toList()
+        for (mat in materials) {
+            val amount = if (isCapital) getVerifiedAmount(mat) else (base.resourceStorage[mat] ?: 0)
+            if (amount > 0) {
+                // 【修复】最多只提取 64 个
+                val amountToTake = minOf(64, amount)
+                givePlayerItem(player, mat, amountToTake)
+                val newCount = (base.resourceStorage[mat] ?: 0) - amountToTake
+                base.resourceStorage[mat] = newCount.coerceAtLeast(0)
+                if (newCount <= 0 && isCapital) {
+                    clearSourceMarks(mat)
+                }
                 hasExtracted = true
             }
         }
-
         if (hasExtracted) {
             player.playSound(player.location, org.bukkit.Sound.ENTITY_PLAYER_LEVELUP, 0.8f, 2.0f)
             setupMenu()
@@ -332,7 +344,6 @@ class IndustryMenuHolder(val base: Base, private val plugin: LandFight) : Action
             player.playSound(player.location, org.bukkit.Sound.ENTITY_VILLAGER_NO, 1.0f, 1.0f)
         }
     }
-
     private fun givePlayerItem(player: Player, mat: Material, amount: Int) {
         var remaining = amount
         while (remaining > 0) {
@@ -343,7 +354,6 @@ class IndustryMenuHolder(val base: Base, private val plugin: LandFight) : Action
             remaining -= giveAmount
         }
     }
-
     private fun getMaterialName(mat: Material): String {
         return when (mat) {
             Material.IRON_INGOT -> "铁锭"

@@ -13,7 +13,6 @@ class DefenseMenuHolder(
 ) : ActionMenu(36, "§0🛡 城防管理中心") {
 
     fun setupMenu() {
-        // 1. 升级据点按钮 (Slot 11)
         val upgradeItem = ItemStack(if (base.level >= 3) Material.NETHER_STAR else Material.ANVIL)
         val upMeta = upgradeItem.itemMeta
         when (base.level) {
@@ -74,20 +73,32 @@ class DefenseMenuHolder(
             }
         }
 
-        // 2. 招募守卫按钮预留 (Slot 15)
+        val guardCost = plugin.guardManager.calculateCost(base)
+        val guardCount = plugin.guardManager.guards.values.count { it.baseId == base.id }
+
         val guardItem = ItemStack(Material.ZOMBIE_SPAWN_EGG)
         val guardMeta = guardItem.itemMeta
         guardMeta?.setDisplayName("§e§l⚔ 招募据点守卫")
         guardMeta?.lore = listOf(
-            "§7当前守卫存活: §a${base.guards.size} §7名",
+            "§7当前守卫存活: §a$guardCount §7名",
+            "§7招募价格: §c${guardCost}个铁锭",
+            "§7效果: 召唤1名卫道士和1名掠夺者",
+            "§c[!] 每次招募后价格暴涨，10分钟后回落至20铁",
             "",
-            "§c[系统预留] 功能即将开放..."
+            "§e▶ 点击消耗物资招募守卫"
         )
         guardItem.itemMeta = guardMeta
 
         setButton(15, guardItem) { _, player ->
-            player.playSound(player.location, org.bukkit.Sound.ENTITY_VILLAGER_NO, 1.0f, 1.0f)
-            player.sendMessage("§c该功能暂未开放！")
+            if (consumeMaterial(player, Material.IRON_INGOT, guardCost)) {
+                plugin.guardManager.spawnGuards(base, player)
+                player.playSound(player.location, org.bukkit.Sound.ENTITY_VILLAGER_YES, 1.0f, 1.0f)
+                player.sendMessage("§a成功招募了2名守卫！他们将跟随你作战。")
+            } else {
+                player.playSound(player.location, org.bukkit.Sound.ENTITY_VILLAGER_NO, 1.0f, 1.0f)
+                player.sendMessage("§c物资不足！招募需要 ${guardCost} 个铁锭。")
+            }
+            setupMenu()
         }
 
         // 3. 返回主菜单按钮 (Slot 31)

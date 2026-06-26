@@ -29,6 +29,8 @@ class LandFight : JavaPlugin() {
         private set
     lateinit var  industryManager: IndustryManager
         private set
+    lateinit var guardManager: top.yurikale.landFight.system.GuardManager // 【新增】
+        private set
 //    lateinit var networkGraph: NetworkGraph
 //      private set
 
@@ -52,6 +54,7 @@ class LandFight : JavaPlugin() {
         sidebarManager = SidebarManager(this)
         mapManager = MapManager(this)
         industryManager = IndustryManager(this)
+        guardManager = top.yurikale.landFight.system.GuardManager(this)
 //        networkGraph = NetworkGraph()
 
         server.pluginManager.registerEvents(GameListener(this), this)
