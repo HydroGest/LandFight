@@ -23,6 +23,7 @@ class DefenseMenuHolder(
                     "§7消耗: §c10个铜锭",
                     "§7效果: 核心血量上限 §f50 -> 100",
                     "§7效果: 核心自然回血 §f1滴/3秒 -> 1滴/2秒",
+                    "§b当前Lv.1权益：工业产能10/10秒，羊回血3秒1点",
                     "",
                     "§e▶ 点击消耗物资进行升级"
                 )
@@ -33,6 +34,7 @@ class DefenseMenuHolder(
                     "§7消耗: §f30个铁锭",
                     "§7效果: 核心血量上限 §f100 -> 150",
                     "§7效果: 核心自然回血 §f1滴/2秒 -> 1滴/1秒",
+                    "§b当前Lv.2权益：工业产能20/10秒，羊回血2秒1点",
                     "",
                     "§e▶ 点击消耗物资进行升级"
                 )
@@ -41,7 +43,8 @@ class DefenseMenuHolder(
                 upMeta?.setDisplayName("§6§l★ 据点已达满级 (Lv.3)")
                 upMeta?.lore = listOf(
                     "§7核心血量上限: §f150",
-                    "§7核心自然回血: §f1滴/1秒"
+                    "§7核心自然回血: §f1滴/1秒",
+                    "§b当前Lv.3权益：工业产能40/10秒，羊回血1秒1点"
                 )
             }
         }
@@ -118,6 +121,15 @@ class DefenseMenuHolder(
 
         player.playSound(player.location, org.bukkit.Sound.ENTITY_PLAYER_LEVELUP, 1.0f, 1.2f)
         player.sendMessage("§a【城防升级】 据点成功升级至 Lv.$newLevel！核心血量上限已提升。")
+
+        val playerTeam = plugin.teamManager.getPlayerTeam(player)
+        val alertMsg = "§a【城防升级】 队友 §f${player.name} §a将据点 §e#${base.id} §a升级至 §6Lv.${newLevel} §a！"
+        org.bukkit.Bukkit.getOnlinePlayers().forEach { p ->
+            if (plugin.teamManager.getPlayerTeam(p) == playerTeam) {
+                p.sendMessage(alertMsg)
+                p.playSound(p.location, org.bukkit.Sound.ENTITY_PLAYER_LEVELUP, 0.8f, 1.3f)
+            }
+        }
         setupMenu() // 刷新当前UI
     }
 
