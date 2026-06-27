@@ -20,6 +20,9 @@ class GameStateManager(private val plugin: LandFight) {
 
     var bases: List<org.bukkit.Location>? = null
 
+    var currentWaitTime: Int = 300
+        internal set
+
     fun switchState(newState: GameState) {
         if (currentState != GameState.LOBBY && currentState == newState) return
         currentState = newState
@@ -30,19 +33,19 @@ class GameStateManager(private val plugin: LandFight) {
                 plugin.lobbyCountdownTask?.cancel()
                 plugin.lobbyCountdownTask = null
 
-                var waitTime = plugin.lobbyWaitSecond
+                currentWaitTime = 300
                 val runnable = object : org.bukkit.scheduler.BukkitRunnable() {
                     override fun run() {
                         val onlineCount = org.bukkit.Bukkit.getOnlinePlayers().size
                         if (onlineCount < plugin.minStartPlayer) {
-                            waitTime = plugin.lobbyWaitSecond
+                            currentWaitTime = 300
                             return
                         }
-                        waitTime--
-                        if (waitTime > 0 && waitTime % 10 == 0) {
-                            org.bukkit.Bukkit.broadcastMessage("§e【大厅提示】§a 当前在线§e ${onlineCount}§a人，§e${waitTime}§a 秒后自动开战！")
+                        currentWaitTime--
+                        if (currentWaitTime > 0 && currentWaitTime % 10 == 0) {
+                            org.bukkit.Bukkit.broadcastMessage("§e【大厅提示】§a 当前在线§e ${onlineCount}§a人，§e${currentWaitTime}§a 秒后自动开战！")
                         }
-                        if (waitTime <= 0) {
+                        if (currentWaitTime <= 0) {
                             this.cancel()
                             plugin.lobbyCountdownTask = null
                             org.bukkit.Bukkit.broadcastMessage("§a§l【系统】人数达标，自动开启战场！")
@@ -56,6 +59,10 @@ class GameStateManager(private val plugin: LandFight) {
             }
 
             GameState.IN_GAME -> {
+                // 强制取消大厅倒计时，防止游戏开始后还在跑倒计时
+                plugin.lobbyCountdownTask?.cancel()
+                plugin.lobbyCountdownTask = null
+
                 isPvPEnabled = false
                 plugin.logger.info("Game state is IN_GAME, initializing battlefield...")
 

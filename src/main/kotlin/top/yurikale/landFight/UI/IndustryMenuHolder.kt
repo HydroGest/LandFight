@@ -115,13 +115,13 @@ class IndustryMenuHolder(val base: Base, private val plugin: LandFight) : Action
                         }
                         loreLines.add("§8§m-------------------------")
                         loreLines.add("§d来源总和校验: §f$totalVerified §7(提取以此为准)")
-                        loreLines.add("§e▶ 点击提取 §a64 §e个 (不足则全取)") // 【修复】提示限制64个
+                        loreLines.add("§e▶ 点击提取 §a64 §e个 (不足则全取)")
                         meta?.lore = loreLines
                         item.itemMeta = meta
                         setButton(storageSlots[slotPointer], item) { _, player -> extractItem(player, mat) }
                     }
                     !autoLogisticsOn -> {
-                        loreLines.add("§e▶ 点击提取 §a64 §e个 (不足则全取)") // 【修复】提示限制64个
+                        loreLines.add("§e▶ 点击提取 §a64 §e个 (不足则全取)")
                         meta?.lore = loreLines
                         item.itemMeta = meta
                         setButton(storageSlots[slotPointer], item) { _, player -> extractItem(player, mat) }
@@ -136,7 +136,7 @@ class IndustryMenuHolder(val base: Base, private val plugin: LandFight) : Action
         coreMeta?.setDisplayName("§e§l🏭 工业产能引擎")
         val outCap = when(base.level) { 1->10; 2->20; 3->40; else->0 }
         coreMeta?.lore = listOf(
-            "§7据点工业等级: §bLv.${base.level} §7(请在“城防管理中心”升级)",
+            "§7据点工业等级: §bLv.${base.level} §7(请在“城防管理中心“升级)",
             "§7总吞吐功率: §a$outCap 方块/10秒",
             "§8§m-------------------------",
             "§7产能说明：每10秒系统会执行 ${outCap} 次挖掘",
@@ -145,10 +145,102 @@ class IndustryMenuHolder(val base: Base, private val plugin: LandFight) : Action
         coreInfo.itemMeta = coreMeta
         setButton(45, coreInfo)
         if (isCapital) {
+            val owner = base.ownerTeam
+            val connectedBases = if (owner != null && owner != TeamColor.NEUTRAL) {
+                plugin.structurePlacer.activeBases.values.filter { other ->
+                    other.id != base.id &&
+                            other.ownerTeam == owner &&
+                            plugin.structurePlacer.networkGraph.isConnected(base.id, other.id)
+                }
+            } else emptyList()
+
+            val logisticsOnCount = connectedBases.count { it.isLogisticsEnabled }
+            val allOn = connectedBases.isNotEmpty() && logisticsOnCount == connectedBases.size
+
+            val batchMaterial = when {
+                connectedBases.isEmpty() -> Material.GRAY_STAINED_GLASS_PANE
+                allOn -> Material.REDSTONE_BLOCK
+                else -> Material.REDSTONE_TORCH
+            }
+            val batchBtn = ItemStack(batchMaterial)
+            val batchMeta = batchBtn.itemMeta
+            batchMeta?.setDisplayName(
+                if (connectedBases.isEmpty()) "§7§l🌐 一键物流 (无连通据点)"
+                else if (allOn) "§c§l🌐 一键关闭连通据点物流"
+                else "§a§l🌐 一键开启连通据点物流"
+            )
+            val batchLore = mutableListOf<String>(
+                "§7同队连通据点: §f${connectedBases.size} §7个",
+                "§7已开启物流: §a$logisticsOnCount §7个",
+                "§7未开启物流: §c${connectedBases.size - logisticsOnCount} §7个",
+                "§8§m-------------------------"
+            )
+            when {
+                connectedBases.isEmpty() -> {
+                    batchLore.add("§c当前没有连通的同队据点")
+                    batchLore.add("§7请先连通更多据点至大本营")
+                }
+                allOn -> {
+                    batchLore.add("§a当前状态: §f全部已开启自动物流")
+                    batchLore.add("§e▶ 点击关闭所有连通据点的自动物流")
+                    batchLore.add("§7关闭后物资将留存于各据点本地")
+                }
+                else -> {
+                    batchLore.add("§e▶ 点击开启所有连通据点的自动物流")
+                    batchLore.add("§7开启后所有产出自动发往大本营(运损10%)")
+                    batchLore.add("§7现有库存也将立即转运至大本营")
+                }
+            }
+            batchMeta?.lore = batchLore
+            batchBtn.itemMeta = batchMeta
+            setButton(47, batchBtn) { _, player ->
+                if (connectedBases.isEmpty()) {
+                    player.sendMessage("§c没有连通的同队据点可操作！")
+                    player.playSound(player.location, org.bukkit.Sound.ENTITY_VILLAGER_NO, 1.0f, 1.0f)
+                } else {
+                    val newState = !allOn
+                    var changedCount = 0
+                    var transferredBases = 0
+                    connectedBases.forEach { b ->
+                        if (b.isLogisticsEnabled != newState) {
+                            b.isLogisticsEnabled = newState
+                            changedCount++
+                        }
+                        // 开启物流时，立即转运现有库存至大本营
+                        if (newState && b.resourceStorage.values.any { it > 0 }) {
+                            val storageCopy = b.resourceStorage.toMap()
+                            storageCopy.forEach { (mat, count) ->
+                                if (count <= 0) return@forEach
+                                val loss = floor(count * 0.1).toInt()
+                                val finalAmount = count - loss
+                                if (finalAmount <= 0) return@forEach
+                                val sourceKey = "source_${b.id}_${mat.name}"
+                                base.resourceSourceMark[sourceKey] =
+                                    base.resourceSourceMark.getOrDefault(sourceKey, 0) + finalAmount
+                                val currentCapStorage = base.resourceStorage.getOrDefault(mat, 0)
+                                base.resourceStorage[mat] = (currentCapStorage + finalAmount).coerceAtMost(128)
+                            }
+                            b.resourceStorage.clear()
+                            b.resourceAccumulator.clear()
+                            transferredBases++
+                        }
+                    }
+                    val msg = if (newState) {
+                        "§a§l[批量操作] §f已开启 $changedCount 个连通据点的自动物流！" +
+                                if (transferredBases > 0) " §7($transferredBases 个据点现有库存已转运至大本营)" else ""
+                    } else {
+                        "§c§l[批量操作] §f已关闭 $changedCount 个连通据点的自动物流，物资将本地留存。"
+                    }
+                    player.sendMessage(msg)
+                    player.playSound(player.location, org.bukkit.Sound.UI_BUTTON_CLICK, 1.0f, 1.5f)
+                    setupMenu()
+                }
+            }
+
+            // ============ 原有：提取总库物资 (Slot 49) ============
             val extractAllBtn = ItemStack(Material.HOPPER)
             val exMeta = extractAllBtn.itemMeta
             exMeta?.setDisplayName("§6§l📦 提取总库物资 (发配至背包)")
-            // 【修复】提示限制每种64个
             exMeta?.lore = listOf("§7将大本营仓储内的物资提取到您的背包中", "§7(§e每种物资最多提取 64 个§7)")
             extractAllBtn.itemMeta = exMeta
             setButton(49, extractAllBtn) { _, player -> extractAll(player) }
@@ -180,7 +272,6 @@ class IndustryMenuHolder(val base: Base, private val plugin: LandFight) : Action
                 } else {
                     val willOpen = !base.isLogisticsEnabled
                     if (willOpen) {
-                        // 【修复】只有连通且成功发车(或无库存但连通)才开启
                         val success = sendToCapital(player)
                         base.isLogisticsEnabled = success
                     } else {
@@ -305,12 +396,10 @@ class IndustryMenuHolder(val base: Base, private val plugin: LandFight) : Action
         val isCapital = plugin.structurePlacer.isBaseCapital(base.id)
         val amount = if (isCapital) getVerifiedAmount(mat) else (base.resourceStorage[mat] ?: 0)
         if (amount <= 0) return
-        // 【修复】最多只提取 64 个
         val amountToTake = minOf(64, amount)
         givePlayerItem(player, mat, amountToTake)
         val newCount = (base.resourceStorage[mat] ?: 0) - amountToTake
         base.resourceStorage[mat] = newCount.coerceAtLeast(0)
-        // 如果该物资被取空，清除来源标记；如果有剩余，保留标记让自产自然扣减
         if (newCount <= 0 && isCapital) {
             clearSourceMarks(mat)
         }
@@ -325,7 +414,6 @@ class IndustryMenuHolder(val base: Base, private val plugin: LandFight) : Action
         for (mat in materials) {
             val amount = if (isCapital) getVerifiedAmount(mat) else (base.resourceStorage[mat] ?: 0)
             if (amount > 0) {
-                // 【修复】最多只提取 64 个
                 val amountToTake = minOf(64, amount)
                 givePlayerItem(player, mat, amountToTake)
                 val newCount = (base.resourceStorage[mat] ?: 0) - amountToTake
