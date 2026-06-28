@@ -1,5 +1,6 @@
 package top.yurikale.landFight.state
 
+import org.bukkit.Location
 import org.bukkit.attribute.Attribute
 import top.yurikale.landFight.LandFight
 import top.yurikale.landFight.team.TeamColor
@@ -78,11 +79,42 @@ class GameStateManager(private val plugin: LandFight) {
                             try {
                                 bases = baseLocations
                                 plugin.logger.info("Battle world spawned!")
-                                val shuffledBases = baseLocations.shuffled()
-                                val redBaseSpawn = shuffledBases[0]
-                                val blueBaseSpawn = shuffledBases[1]
-                                val redBase = plugin.structurePlacer.activeBases.values.find { isSameBlockPos(it.location, redBaseSpawn) }
-                                val blueBase = plugin.structurePlacer.activeBases.values.find { isSameBlockPos(it.location, blueBaseSpawn) }
+
+                                var redBaseSpawn: Location? = null
+                                var blueBaseSpawn: Location? = null
+
+                                if (baseLocations.size >= 2) {
+                                    // 数据类记录一对点和它们的距离平方
+                                    data class BasePair(val loc1: Location, val loc2: Location, val distSq: Double)
+                                    val pairs = mutableListOf<BasePair>()
+
+                                    for (i in baseLocations.indices) {
+                                        for (j in i + 1 until baseLocations.size) {
+                                            val dx = baseLocations[i].x - baseLocations[j].x
+                                            val dz = baseLocations[i].z - baseLocations[j].z
+                                            // 避免开方，使用距离平方比较大小，结果一致
+                                            val distSq = dx * dx + dz * dz
+                                            pairs.add(BasePair(baseLocations[i], baseLocations[j], distSq))
+                                        }
+                                    }
+
+                                    // 按距离平方降序排列，取前 10 对（若不足 10 对则全取）
+                                    val topPairs = pairs.sortedByDescending { it.distSq }.take(10)
+
+                                    // 在这 Top 10 中随机抽签
+                                    val chosenPair = topPairs.random()
+                                    redBaseSpawn = chosenPair.loc1
+                                    blueBaseSpawn = chosenPair.loc2
+                                }
+
+                                val redBase = redBaseSpawn?.let { loc ->
+                                    plugin.structurePlacer.activeBases.values.find { isSameBlockPos(it.location, loc) }
+                                }
+                                val blueBase = blueBaseSpawn?.let { loc ->
+                                    plugin.structurePlacer.activeBases.values.find { isSameBlockPos(it.location, loc) }
+                                }
+
+
                                 plugin.logger.info("Base ready! (3/3)")
                                 if (redBase != null && blueBase != null) {
                                     org.bukkit.Bukkit.getScheduler().runTask(plugin, Runnable {

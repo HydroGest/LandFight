@@ -30,9 +30,9 @@ class GuardManager(private val plugin: LandFight) {
     val guards = mutableMapOf<UUID, GuardData>()
 
     companion object {
-        private const val COOLDOWN_MS = 10 * 60 * 1000L
-        private const val PEAK_PRICE = 300.0
-        private const val BASE_PRICE = 20
+        private const val COOLDOWN_MS = 5 * 60 * 1000L
+        private const val PEAK_PRICE = 30.0
+        private const val BASE_PRICE = 10
     }
 
     init {
