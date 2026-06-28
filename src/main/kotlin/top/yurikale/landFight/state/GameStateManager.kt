@@ -180,6 +180,8 @@ class GameStateManager(private val plugin: LandFight) {
                 isPvPEnabled = false
                 plugin.logger.info("Game state is RESET, resetting battlefield...")
 
+                plugin.currentGameTask?.endGame()
+
                 plugin.currentGameTask?.cancel()
                 plugin.currentGameTask = null
 

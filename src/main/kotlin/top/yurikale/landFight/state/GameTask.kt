@@ -224,7 +224,7 @@ class GameTask(private val plugin: LandFight) : BukkitRunnable() {
         endGame()
     }
 
-    private fun endGame() {
+    fun endGame() {
         this.cancel()
         gameCountdownBar?.removeAll()
         gameCountdownBar = null
