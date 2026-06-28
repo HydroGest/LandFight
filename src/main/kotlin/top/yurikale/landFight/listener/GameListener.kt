@@ -18,6 +18,7 @@ import org.bukkit.event.block.BlockPlaceEvent
 import org.bukkit.event.entity.EntityDamageByEntityEvent
 import org.bukkit.event.entity.EntityDamageEvent
 import org.bukkit.event.entity.EntityExplodeEvent
+import org.bukkit.event.entity.FoodLevelChangeEvent
 import org.bukkit.event.entity.PlayerDeathEvent
 import org.bukkit.event.inventory.InventoryClickEvent
 import org.bukkit.event.player.PlayerInteractEntityEvent
@@ -443,6 +444,23 @@ class GameListener(private val plugin: LandFight) : Listener {
                 }
             }
             GameState.RESET -> { }
+        }
+    }
+
+    // ================================================
+    //  大厅饱食度保护
+    // ================================================
+    @EventHandler
+    fun onFoodLevelChange(event: FoodLevelChangeEvent) {
+        if (plugin.stateManager.currentState == GameState.LOBBY) {
+            event.isCancelled = true
+
+            // 如果饱食度被其他因素扣减了，顺便回满
+            val entity = event.entity
+            if (entity is Player && entity.foodLevel < 20) {
+                entity.foodLevel = 20
+                entity.saturation = 5.0f
+            }
         }
     }
 
