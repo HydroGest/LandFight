@@ -309,10 +309,8 @@ class GameListener(private val plugin: LandFight) : Listener {
         if (plugin.stateManager.currentState != GameState.IN_GAME) return
         val victim = event.entity
         val damager = event.damager
-
         if (victim is org.bukkit.entity.Mob && victim !is Sheep) {
             val victimData = plugin.guardManager.getGuardData(victim.uniqueId) ?: return
-
             // 如果是玩家攻击
             if (damager is Player) {
                 val damagerTeam = plugin.teamManager.getPlayerTeam(damager)
@@ -327,9 +325,18 @@ class GameListener(private val plugin: LandFight) : Listener {
                     event.isCancelled = true
                 }
             }
+            // 新增：如果是 TNT 爆炸，检查是否为同队玩家引爆
+            else if (damager is TNTPrimed) {
+                val source = damager.source
+                if (source is Player) {
+                    val sourceTeam = plugin.teamManager.getPlayerTeam(source)
+                    if (sourceTeam == victimData.team) {
+                        event.isCancelled = true
+                    }
+                }
+            }
         }
     }
-
     // ================================================
     //  方块破坏保护
     // ================================================

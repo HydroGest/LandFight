@@ -8,31 +8,25 @@ import kotlin.math.floor
 import kotlin.math.log2
 
 class IndustryManager(private val plugin: LandFight) {
-
     var lastCycleStartTime: Long = System.currentTimeMillis()
         private set
-
     private fun getOutputCap(level: Int): Int = when (level) {
         1 -> 10
         2 -> 20
         3 -> 40
         else -> 0
     }
-
     fun scanEnvironment(base: Base) {
         Bukkit.getScheduler().runTask(plugin, Runnable {
             val loc = base.location
             val world = loc.world ?: return@Runnable
-
             val radius = 15
             val heightDown = 30
             val heightUp = 20
-
             val minCX = (loc.blockX - radius) shr 4
             val maxCX = (loc.blockX + radius) shr 4
             val minCZ = (loc.blockZ - radius) shr 4
             val maxCZ = (loc.blockZ + radius) shr 4
-
             for (cx in minCX..maxCX) {
                 for (cz in minCZ..maxCZ) {
                     val chunk = world.getChunkAt(cx, cz)
@@ -41,22 +35,17 @@ class IndustryManager(private val plugin: LandFight) {
                     }
                 }
             }
-
             var validBlocks = 0
             val counts = mutableMapOf<Material, Double>()
-
             for (x in -radius..radius) {
                 for (z in -radius..radius) {
                     val realX = loc.blockX + x
                     val realZ = loc.blockZ + z
-
                     for (y in -heightDown..heightUp) {
                         val realY = loc.blockY + y
                         val type = world.getType(realX, realY, realZ)
-
                         if (type.isAir || type == Material.WATER || type == Material.LAVA) continue
                         validBlocks++
-
                         when (type) {
                             Material.IRON_ORE, Material.DEEPSLATE_IRON_ORE ->
                                 counts[Material.IRON_INGOT] = counts.getOrDefault(Material.IRON_INGOT, 0.0) + 1.0
@@ -66,7 +55,6 @@ class IndustryManager(private val plugin: LandFight) {
                                 counts[Material.COAL] = counts.getOrDefault(Material.COAL, 0.0) + 1.0
                             Material.DIAMOND_ORE, Material.DEEPSLATE_DIAMOND_ORE ->
                                 counts[Material.DIAMOND] = counts.getOrDefault(Material.DIAMOND, 0.0) + 1.0
-
                             Material.SAND, Material.RED_SAND -> {
                                 counts[Material.GUNPOWDER] = counts.getOrDefault(Material.GUNPOWDER, 0.0) + 0.5
                                 counts[Material.SAND] = counts.getOrDefault(Material.SAND, 0.0) + 0.5
@@ -80,60 +68,49 @@ class IndustryManager(private val plugin: LandFight) {
                                 counts[Material.COBBLESTONE] = counts.getOrDefault(Material.COBBLESTONE, 0.0) + 1.0
                             Material.COPPER_ORE, Material.DEEPSLATE_COPPER_ORE ->
                                 counts[Material.COPPER_INGOT] = counts.getOrDefault(Material.COPPER_INGOT, 0.0) + 1.0
-                            Material.GRASS_BLOCK ->
-                                counts[Material.FEATHER] = counts.getOrDefault(Material.FEATHER, 0.0) + 1.0
-
+                            Material.GRASS_BLOCK -> {
+                                counts[Material.WHEAT] = counts.getOrDefault(Material.WHEAT, 0.0) + 0.5
+                                counts[Material.FEATHER] = counts.getOrDefault(Material.FEATHER, 0.0) + 0.5
+                            }
                             else -> {}
                         }
                     }
                 }
             }
-
             val logCounts = mutableMapOf<Material, Double>()
             var totalLogSum = 0.0
-
             counts.forEach { (mat, count) ->
                 val logVal = log2(count + 2.0)
                 logCounts[mat] = logVal
                 totalLogSum += logVal
             }
-
             logCounts.forEach { (mat, logVal) ->
                 val finalWeight = if (totalLogSum > 0) logVal / totalLogSum else 0.0
                 base.resourceWeights[mat] = finalWeight.coerceAtMost(1.0)
             }
-
             base.isScanned = true
             plugin.logger.info("据点 #${base.id} 扫描完成！共扫描 $validBlocks 个有效方块，发现 ${counts.size} 种资源。")
         })
     }
-
     fun tickIndustry() {
         lastCycleStartTime = System.currentTimeMillis()
-
         val activeBases = plugin.structurePlacer.activeBases.values
-
         for (base in activeBases) {
             if (!base.isScanned) continue
             val owner = base.ownerTeam ?: continue
             if (owner == top.yurikale.landFight.team.TeamColor.NEUTRAL) continue
-
             val outputCap = getOutputCap(base.level)
-
             for ((mat, weight) in base.resourceWeights) {
                 val production = outputCap * weight
                 val currentAccumulated = base.resourceAccumulator.getOrDefault(mat, 0.0) + production
-
                 val generatedItems = floor(currentAccumulated).toInt()
                 if (generatedItems > 0) {
-                    // 【修复】加入 128 上限截断
+                    // 加入 128 上限截断
                     val currentStorage = base.resourceStorage.getOrDefault(mat, 0)
                     base.resourceStorage[mat] = (currentStorage + generatedItems).coerceAtMost(128)
                 }
-
                 base.resourceAccumulator[mat] = currentAccumulated - generatedItems
             }
-
             // 自动物流：转运到大本营
             if (base.isLogisticsEnabled) {
                 val teamOwner = base.ownerTeam ?: continue
@@ -141,7 +118,6 @@ class IndustryManager(private val plugin: LandFight) {
                 val capitalBase = plugin.structurePlacer.activeBases.values.find {
                     plugin.stateManager.isSameBlockPos(it.location, capitalLoc)
                 } ?: continue
-
                 if (plugin.structurePlacer.networkGraph.isConnected(base.id, capitalBase.id)) {
                     val storageCopy = base.resourceStorage.toMap()
                     storageCopy.forEach { (mat, count) ->
@@ -152,7 +128,6 @@ class IndustryManager(private val plugin: LandFight) {
                                 capitalBase.resourceSourceMark[sourceKey] =
                                     capitalBase.resourceSourceMark.getOrDefault(sourceKey, 0) + finalAmount
 
-                                // 【修复】大本营接收时也限制 128 上限
                                 val currentCapStorage = capitalBase.resourceStorage.getOrDefault(mat, 0)
                                 capitalBase.resourceStorage[mat] = (currentCapStorage + finalAmount).coerceAtMost(128)
                             }
@@ -165,7 +140,6 @@ class IndustryManager(private val plugin: LandFight) {
                     base.isLogisticsEnabled = false
                 }
             }
-
             // 在线玩家热更新UI
             for (player in Bukkit.getOnlinePlayers()) {
                 val topInv = player.openInventory.topInventory

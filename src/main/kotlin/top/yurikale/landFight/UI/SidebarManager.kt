@@ -60,6 +60,8 @@ class SidebarManager(private val plugin: LandFight) {
 
         val lines = mutableListOf<String>()
 
+        lines.add("${ChatColor.AQUA}     landmc.fun")
+
         // 【新增】如果处于保护期，在最上方显示倒计时
         if (protectionTime > 0) {
             val m = protectionTime / 60
@@ -76,8 +78,6 @@ class SidebarManager(private val plugin: LandFight) {
         lines.add("${ChatColor.BLUE}蓝队基地: ${if (blueBaseExists) "§a存活" else "§c已摧毁"}")
         lines.add("    ")
         lines.add("${ChatColor.YELLOW}占领据点: ${ChatColor.WHITE}$points")
-        lines.add("  ")
-        lines.add("${ChatColor.AQUA}   landmc.fun")
 
         for (i in lines.indices.reversed()) {
             objective.getScore(lines[i]).score = i

@@ -455,6 +455,7 @@ class IndustryMenuHolder(val base: Base, private val plugin: LandFight) : Action
             Material.COBBLESTONE -> "圆石"
             Material.SAND -> "沙子"
             Material.FEATHER -> "鸡毛"
+            Material.WHEAT -> "小麦"
             else -> mat.name
         }
     }

@@ -37,7 +37,7 @@ class ChatManager(private val plugin: LandFight) {
                     val formatted = "$teamPrefix §f${player.name} §7» §f$message"
                     Bukkit.getOnlinePlayers().forEach { p ->
                         val pTeam = plugin.teamManager.getPlayerTeam(p)
-                        if (pTeam == team || p.hasPermission("landfight.chat.spy")) {
+                        if (pTeam == team) {
                             p.sendMessage(formatted)
                         }
                     }
