@@ -19,6 +19,8 @@ class GameTask(private val plugin: LandFight) : BukkitRunnable() {
 
     private var gameCountdownBar: BossBar? = null
 
+    private var protectionTimeLeft = 900
+
     private fun getBaseIdAt(loc: Location): Int {
         return plugin.structurePlacer.activeBases.values.find {
             it.location.blockX == loc.blockX && it.location.blockY == loc.blockY && it.location.blockZ == loc.blockZ
@@ -48,6 +50,17 @@ class GameTask(private val plugin: LandFight) : BukkitRunnable() {
             return
         }
 
+        // ================ 大本营保护期倒计时与检测 ================
+        var protectionDisplay = -1
+        if (protectionTimeLeft > 0) {
+            protectionDisplay = protectionTimeLeft
+            protectionTimeLeft--
+            if (protectionTimeLeft == 0) {
+                Bukkit.broadcastMessage("§e【系统】§f15分钟大本营保护期已结束，现在可以进攻敌方大本营了！")
+            }
+        }
+
+
         if (timeLeft % 10 == 0) {
             plugin.industryManager.tickIndustry()
         }
@@ -68,7 +81,7 @@ class GameTask(private val plugin: LandFight) : BukkitRunnable() {
             }
         }
 
-        // ================ 【新增】每秒刷新所有打开工业菜单的玩家UI ================
+        // ================ 每秒刷新所有打开工业菜单的玩家UI ================
         // 作用：1. 让10秒进度条平滑滚动  2. 多玩家操作实时同步，防止显示不同步
         refreshIndustryMenus()
 
@@ -122,11 +135,38 @@ class GameTask(private val plugin: LandFight) : BukkitRunnable() {
         val redBase = hasRedCapital
         val blueBase = hasBlueCapital
         val pointStatus = "${TeamColor.RED.colorCode}${plugin.structurePlacer.getCapturedNumber(TeamColor.RED)} §a- ${TeamColor.BLUE.colorCode}${plugin.structurePlacer.getCapturedNumber(TeamColor.BLUE)}"
-        plugin.sidebarManager.updateSidebar(redAlive, blueAlive, redBase, blueBase, pointStatus)
 
-        // 遍历在线生存模式玩家，发送据点提示
+        plugin.sidebarManager.updateSidebar(redAlive, blueAlive, redBase, blueBase, pointStatus, protectionDisplay)
+
+        // 遍历在线生存模式玩家，发送据点提示 & 保护期惩罚
         for (player in Bukkit.getOnlinePlayers()) {
             if (player.gameMode != org.bukkit.GameMode.SURVIVAL) continue
+
+            // 大本营保护期入侵检测
+            if (protectionDisplay > 0) {
+                val myTeam = plugin.teamManager.getPlayerTeam(player)
+                if (myTeam == TeamColor.RED || myTeam == TeamColor.BLUE) {
+                    val enemyTeam = if (myTeam == TeamColor.RED) TeamColor.BLUE else TeamColor.RED
+                    val enemyCapital = plugin.teamManager.teamsCapitals[enemyTeam]
+
+                    if (enemyCapital != null && enemyCapital.world?.name == player.world?.name) {
+                        val dx = player.location.x - enemyCapital.x
+                        val dz = player.location.z - enemyCapital.z
+                        // 2D距离判断，半径 128
+                        if (dx * dx + dz * dz <= 128 * 128) {
+                            // 给予虚弱 II 和反胃 II，持续3秒（60 ticks），覆盖粒子隐藏
+                            player.addPotionEffect(org.bukkit.potion.PotionEffect(org.bukkit.potion.PotionEffectType.WEAKNESS, 60, 1, false, false, true))
+                            player.addPotionEffect(org.bukkit.potion.PotionEffect(org.bukkit.potion.PotionEffectType.NAUSEA, 60, 1, false, false, true))
+
+                            player.spigot().sendMessage(
+                                net.md_5.bungee.api.ChatMessageType.ACTION_BAR,
+                                net.md_5.bungee.api.chat.TextComponent("§c⚠ 处于敌方大本营保护区(半径128)内！")
+                            )
+                            continue // 跳过下方普通的据点提示
+                        }
+                    }
+                }
+            }
 
             val currentBase = plugin.structurePlacer.getBaseAtPlayer(player.location)
             if (currentBase != null) {
@@ -139,6 +179,7 @@ class GameTask(private val plugin: LandFight) : BukkitRunnable() {
                 )
             }
         }
+
 
         plugin.structurePlacer.activeBases.values.forEach { base ->
             val sheep = plugin.server.getEntity(base.sheepEntityId ?: return@forEach) as? org.bukkit.entity.Sheep ?: return@forEach
