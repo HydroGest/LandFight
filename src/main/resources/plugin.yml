@@ -9,3 +9,18 @@ commands:
   lf:
     description: "核心控制指令"
     usage: /lf <start|stop>
+  shout:
+    description: 切换全局聊天或直接发送全局消息
+    usage: /shout [message]
+  hh:
+    description: 切换全局聊天或直接发送全局消息
+    usage: /hh [message]
+  g:
+    description: 切换全局聊天或直接发送全局消息
+    usage: /g [message]
+  team:
+    description: 切换队伍聊天或直接发送队伍消息
+    usage: /team [message]
+  t:
+    description: 切换队伍聊天或直接发送队伍消息
+    usage: /t [message]

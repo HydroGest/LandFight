@@ -21,6 +21,7 @@ import org.bukkit.event.entity.EntityExplodeEvent
 import org.bukkit.event.entity.FoodLevelChangeEvent
 import org.bukkit.event.entity.PlayerDeathEvent
 import org.bukkit.event.inventory.InventoryClickEvent
+import org.bukkit.event.player.AsyncPlayerChatEvent
 import org.bukkit.event.player.PlayerInteractEntityEvent
 import org.bukkit.event.player.PlayerInteractEvent
 import org.bukkit.event.player.PlayerItemHeldEvent
@@ -444,6 +445,16 @@ class GameListener(private val plugin: LandFight) : Listener {
                 }
             }
             GameState.RESET -> { }
+        }
+    }
+
+    @EventHandler
+    fun onChat(event: AsyncPlayerChatEvent) {
+        val player = event.player
+        // 交由 ChatManager 处理，如果返回 true 则取消原版广播
+        val isHandled = plugin.chatManager.handleChat(player, event.message)
+        if (isHandled) {
+            event.isCancelled = true
         }
     }
 

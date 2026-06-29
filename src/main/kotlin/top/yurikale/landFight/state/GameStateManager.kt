@@ -217,7 +217,7 @@ class GameStateManager(private val plugin: LandFight) {
                             progress.revokeCriteria(criteria)
                         }
                     }
-
+                    plugin.chatManager.resetChannel(player.uniqueId)
                     player.sendMessage("§a§l[系统] §f游戏已结束")
                 }
 

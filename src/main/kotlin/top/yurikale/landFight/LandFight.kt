@@ -2,6 +2,8 @@ package top.yurikale.landFight
 
 import org.bukkit.World
 import org.bukkit.plugin.java.JavaPlugin
+import top.yurikale.landFight.chat.ChatManager
+import top.yurikale.landFight.command.ChatCommand
 import top.yurikale.landFight.command.GameCommand
 import top.yurikale.landFight.listener.GameListener
 import top.yurikale.landFight.world.StructurePlacer
@@ -31,6 +33,8 @@ class LandFight : JavaPlugin() {
         private set
     lateinit var guardManager: top.yurikale.landFight.system.GuardManager // 【新增】
         private set
+    lateinit var chatManager: ChatManager
+        private set
 //    lateinit var networkGraph: NetworkGraph
 //      private set
 
@@ -55,11 +59,16 @@ class LandFight : JavaPlugin() {
         mapManager = MapManager(this)
         industryManager = IndustryManager(this)
         guardManager = top.yurikale.landFight.system.GuardManager(this)
+        chatManager = ChatManager(this)
 //        networkGraph = NetworkGraph()
 
         server.pluginManager.registerEvents(GameListener(this), this)
         getCommand("lf")?.setExecutor(GameCommand(this))
-
+        getCommand("shout")?.setExecutor(ChatCommand(this))
+        getCommand("hh")?.setExecutor(ChatCommand(this))
+        getCommand("g")?.setExecutor(ChatCommand(this))
+        getCommand("team")?.setExecutor(ChatCommand(this))
+        getCommand("t")?.setExecutor(ChatCommand(this))
 
         logger.info("领地战争 （LandFight） 已启动成功！")
 
